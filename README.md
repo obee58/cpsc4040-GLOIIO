@@ -1,4 +1,4 @@
-# cpsc4040-project1
+# cpsc4040-GLOIIO
 Dr. Karamouzas "Get the picture"
 
 Program by Owen Book (obook@clemson.edu)
