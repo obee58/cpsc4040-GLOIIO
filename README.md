@@ -9,9 +9,7 @@ by Owen Book (obook@clemson.edu)
 ### Compilation
 Included is a slightly modified version of Dr. Karamouzas' sample makefile.
 
-`make`: compile the code
-
-`make run`: run the program without arguments
+`make`: compile the code into the program suite
 
 `make clean`: delete compiled outputs (will not touch images the program creates)
 
