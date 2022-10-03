@@ -1,26 +1,19 @@
-CC		= g++
-C		= cpp
-
-CFLAGS		= -g
+CXX = g++ #compiler
+CPPFLAGS = -g #flags
 
 ifeq ("$(shell uname)", "Darwin")
-  LDFLAGS     = -framework Foundation -framework GLUT -framework OpenGL -lOpenImageIO -lm
-else
+  LD = -framework Foundation -framework GLUT -framework OpenGL -lOpenImageIO -lm
+else	
   ifeq ("$(shell uname)", "Linux")
-    LDFLAGS   = -L /usr/lib64/ -lglut -lGL -lGLU -lOpenImageIO -lm
+    LD = -L /usr/lib64/ -lglut -lGL -lGLU -lOpenImageIO -lm
   endif
 endif
 
-PROJECT		= imgview
-
-${PROJECT}:	${PROJECT}.o
-	${CC} ${CFLAGS} -o ${PROJECT} ${PROJECT}.o ${LDFLAGS}
-
-${PROJECT}.o:	${PROJECT}.${C}
-	${CC} ${CFLAGS} -c ${PROJECT}.${C}
-
-run:
-	./${PROJECT}
+# I have spent an hour on fixing this makefile and make refuses to read a list one-by-one
+# just copy the line and replace the filenames
+default:
+	${CXX} ${CPPFLAGS} -o alphamask src/alphamask.cpp ${LD}
+	${CXX} ${CPPFLAGS} -o compose src/compose.cpp ${LD}
 
 clean:
-	rm -f core.* *.o *~ ${PROJECT}
+	rm -f core.* *.o *~ imgview alphamask compose
