@@ -6,14 +6,15 @@ by Owen Book (obook@clemson.edu)
 
 *CPSC 4040 | Fall 2022*
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> 58fba8520405c31f447bf08fdef83788ad006e7b
 ### Compilation
 Included is a slightly modified version of Dr. Karamouzas' sample makefile.
 
-`make`: compile the code
-
-`make run`: run the program without arguments
+`make`: compile the code into the program suite
 
 `make clean`: delete compiled outputs (will not touch images the program creates)
 
@@ -45,7 +46,10 @@ If a file does not exist or cannot be opened, the program will notify you and ig
 ## alphamask
 **alphamask** can create and export transparent images. It works best with clear backgrounds such as greenscreens.
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 58fba8520405c31f447bf08fdef83788ad006e7b
 #### Controls
 The program will automatically display the resulting image.
 
@@ -64,7 +68,10 @@ If .png is omitted from output, the program will append it automatically. You ca
 ## compose
 **compose** draws one image over another, taking transparency into account. It does not support cropping - the background image *B* must be the same size as or larger than the foreground image *A*.
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 58fba8520405c31f447bf08fdef83788ad006e7b
 #### Controls
 The program will automatically display the resulting image.
 
