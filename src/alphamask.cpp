@@ -9,8 +9,7 @@
 
 #include <OpenImageIO/imageio.h>
 #include <iostream>
-#include <random>
-#include <algorithm>
+#include <string>
 
 #ifdef __APPLE__
 #  pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -34,55 +33,41 @@ OIIO_NAMESPACE_USING
 #define maximum(x,y,z) ((x) > (y)? ((x) > (z)? (x) : (z)) : ((y) > (z)? (y) : (z)))
 #define minimum(x,y,z) ((x) < (y)? ((x) < (z)? (x) : (z)) : ((y) < (z)? (y) : (z)))
 
-//simple struct to hold image spec and pixels as unsigned chars
-typedef struct image_uint8_t {
-	ImageSpec spec;
-	bool hasAlpha;
-	unsigned char* pixels;
-} ByteImage;
 //utility struct that holds RGBA 4-tuple of chars
 typedef struct pixel_rgba_t {
-	unsigned char red;
-	unsigned char green;
-	unsigned char blue;
-	unsigned char alpha;
+	unsigned char red, green, blue, alpha;
 } pxRGBA;
 //utility struct that holds RGB 3-tuple of chars
 typedef struct pixel_rgb_t {
-	unsigned char red;
-	unsigned char green;
-	unsigned char blue;
+	unsigned char red, green, blue;
 } pxRGB;
 //utility struct that holds HSV 3-tuple of doubles
 typedef struct pixel_hsv_t {
-	double hue;
-	double saturation;
-	double value;
+	double hue, saturation, value;
 } pxHSV;
+
+//struct to tie image spec and pixels together
+typedef struct image_rgba_uint8_t {
+	ImageSpec spec;
+	pxRGBA* pixels;
+} ImageRGBA;
+
 
 /** CONTROL & GLOBAL STATICS **/
 //list of read images for multi-image viewing mode
-static vector<ByteImage> imageCache;
+static vector<ImageRGBA> imageCache;
 //current index in vector to attempt to load (probably won't be touched in this program)
 static int cacheIndex = 0;
 
-/** DEBUG FUNCTIONS **/
-/* prints the first PEEK bytes of the current image to stdout 
-	does nothing if no image is loaded */
-void peekBytes() {
-	if (imageCache.size() > 0) {
-		cout << "first " << PEEK_COUNT << " bytes of this image in memory (note that it is vertically flipped when loaded): " << endl;
-		for (int i=0; i<PEEK_COUNT; i++) {
-			cout << hex << +imageCache[cacheIndex].pixels[i] << " ";
-		}
-		cout << dec << endl;
-	}
-	else cout << "cannot peek when no images are loaded" << endl;
+/** PROCESSING FUNCTIONS **/
+/*	clean up memory of unneeded ImageRGBA
+	don't forget to remove it from imageCache first! */
+void discardImage(ImageRGBA image) {
+	delete image.pixels;
 }
 
-/** PROCESSING FUNCTIONS **/
 /*  reads in image from specified filename as RGBA 8bit pixmap
-	puts a new ByteImage in the imageCache vector if successful */
+	puts a new ImageRGBA in the imageCache vector if successful */
 void readImage(string filename) {
 	std::unique_ptr<ImageInput> in = ImageInput::open(filename);
 	if (!in) {
@@ -92,40 +77,68 @@ void readImage(string filename) {
 	}
 
 	//store spec and get metadata from it
-	ByteImage image;
+	ImageRGBA image;
 	image.spec = in->spec();
 	int xr = image.spec.width;
 	int yr = image.spec.height;
 	int channels = image.spec.nchannels;
 
-	//declare memory to read image data
-	unsigned char* px = new unsigned char[xr*yr*channels];
+	//declare temp memory to read raw image data
+	unsigned char temp_px[xr*yr*channels];
 
-	//read in image data, mapping as unsigned char
-	in->read_image(TypeDesc::UINT8, px);
-
-	//store in struct, close input
-	image.pixels = px;
-	switch(channels) {
-		case 1:
-		case 3:
-			image.hasAlpha = false;
-			break;
-		case 2:
-		case 4:
-			image.hasAlpha = true;
-			break;
-		default:
-			image.hasAlpha = true;
-			break;
+	// read the image into the temp_px from the input file, flipping it upside down using negative y-stride,
+	// since OpenGL pixmaps have the bottom scanline first, and 
+	// oiio expects the top scanline first in the image file.
+	int scanlinesize = xr * channels * sizeof(unsigned char);
+	if(!in->read_image(TypeDesc::UINT8, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
+		cerr << "Could not read image from " << filename << ", error = " << geterror() << endl;
+		//cancel routine
+		return;
+  	}
+	
+	//allocate data for converted pxRGBA version
+	image.pixels = new pxRGBA[xr*yr];
+	//convert and store raw image data as pxRGBAs
+	for (int i=0; i<yr*xr; i++) {
+		switch(channels) {
+			//this could be more cleanly programmed but the less convoluted the better
+			case 1: //grayscale
+				image.pixels[i].red = temp_px[i];
+				image.pixels[i].green = temp_px[i];
+				image.pixels[i].blue = temp_px[i];
+				image.pixels[i].alpha = 255;
+				break;
+			case 2: //weird grayscale with alpha (just covering my ass here)
+				image.pixels[i].red = temp_px[2*i];
+				image.pixels[i].green = temp_px[2*i];
+				image.pixels[i].blue = temp_px[2*i];
+				image.pixels[i].alpha = temp_px[(2*i)+1];
+				break;
+			case 3: //RGB
+				image.pixels[i].red = temp_px[(3*i)];
+				image.pixels[i].green = temp_px[(3*i)+1];
+				image.pixels[i].blue = temp_px[(3*i)+2];
+				image.pixels[i].alpha = 255;
+				break;
+			case 4: //RGBA
+				image.pixels[i].red = temp_px[(4*i)];
+				image.pixels[i].green = temp_px[(4*i)+1];
+				image.pixels[i].blue = temp_px[(4*i)+2];
+				image.pixels[i].alpha = temp_px[(4*i)+3];
+				break;
+			default: //something weird, just do nothing
+				break;
+		}
 	}
+
+	//close input
 	in->close();
-	//store struct in cache and switch to display the image
+	//store struct in cache and switch to display this image
 	imageCache.push_back(image);
 	cacheIndex = imageCache.size()-1;
 }
 
-/* functions to quickly create pxRGB, pxRGBA, pxHSV,...*/
+/* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
 pxRGB linkRGB(unsigned char r, unsigned char g, unsigned char b) {
 	pxRGB px;
 	px.red = r;
@@ -201,10 +214,18 @@ void chromaKey(int hue, int sat, int val) {
 /* writes currently dixplayed pixmap (as RGBA) to a file
 	(mostly the same as sample code) */
 void writeImage(string filename){
-	int xr = glutGet(GLUT_WINDOW_WIDTH);
-	int yr = glutGet(GLUT_WINDOW_HEIGHT);
+	int xr = imageCache[cacheIndex].spec.width;
+	int yr = imageCache[cacheIndex].spec.height;
 	int channels = 4;
-	unsigned char px[channels * xr * yr];
+	//temporary 1d array to stick all the pxRGBA data into
+	//write_image does not like my structs >:(
+	unsigned char temp_px[xr*yr*channels];
+	for (int i=0; i<xr*yr; i++) {
+		temp_px[(4*i)] = imageCache[cacheIndex].pixels[i].red;
+		temp_px[(4*i)+1] = imageCache[cacheIndex].pixels[i].green;
+		temp_px[(4*i)+2] = imageCache[cacheIndex].pixels[i].blue;
+		temp_px[(4*i)+3] = imageCache[cacheIndex].pixels[i].alpha;
+	}
 
 	// create the oiio file handler for the image
 	std::unique_ptr<ImageOutput> outfile = ImageOutput::create(filename);
@@ -212,20 +233,6 @@ void writeImage(string filename){
 		cerr << "could not create output file! " << geterror() << endl;
 		//cancel routine
 		return;
-	}
-
-	// get the current pixels from the OpenGL framebuffer and store in pixmap
-	glReadPixels(0, 0, xr, yr, GL_RGBA, GL_UNSIGNED_BYTE, px);
-
-	//FLIP the image data so that it isn't upside down (framebuffer starts at bottom left)
-	unsigned char* pxflip = new unsigned char [xr*yr*channels];
-	int linebytes = xr*channels;
-	int destline = 0; //my pointer math is bad today
-	for (int i=yr-1; i>=0; i--) {
-		for (int j=0; j<linebytes; j++) {
-			pxflip[(linebytes*i)+j] = px[(destline*linebytes)+j];
-		}
-		destline++;
 	}
 
 	// open a file for writing the image. The file header will indicate an image of
@@ -238,8 +245,10 @@ void writeImage(string filename){
 	}
 
 	// write the image to the file. All channel values in the pixmap are taken to be
-	// unsigned chars
-	if(!outfile->write_image(TypeDesc::UINT8, pxflip)){
+	// unsigned chars. flip using stride to undo same effort in readImage
+	int scanlinesize = xr * channels * sizeof(unsigned char);
+	cout << cacheIndex << endl;
+	if(!outfile->write_image(TypeDesc::UINT8, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
 		cerr << "could not write to file! " << geterror() << endl;
 		return;
 	}
@@ -257,42 +266,32 @@ void writeImage(string filename){
 if no images are loaded, only draws a black background */
 void draw(){
 	//clear and make black background
-	glClearColor(0,0,0,0);
+	glClearColor(0,0,0,1);
 	glClear(GL_COLOR_BUFFER_BIT);
 	if (imageCache.size() > 0) {
-		//get image spec
+		//get image spec & current window size
 		ImageSpec* spec = &imageCache[cacheIndex].spec;
-		//fit window to image
-		glutReshapeWindow(spec->width,spec->height);
-		//determine pixel format
-		GLenum format;
-		switch(spec->nchannels) {
-			case 1:
-				format = GL_LUMINANCE;
-				glPixelStorei(GL_UNPACK_ALIGNMENT, 1); //Parrot Fixer 2000
-				/* my guess is that for some reason GL doesn't default to reading byte-by-byte?? */
-				break;
-			case 2:
-				format = GL_LUMINANCE_ALPHA;
-				break;
-			case 3:
-				format = GL_RGB;
-				break;
-			case 4:
-				format = GL_RGBA;
-				break;
+		/*below dead code is WIP that isn't necessary for these two programs;
+			might fix and port over to imgview later*/
+		/*int winwidth = glutGet(GLUT_WINDOW_WIDTH);
+		int winheight = glutGet(GLUT_WINDOW_HEIGHT);
+		if (winwidth < spec->width || winheight < spec->height) {
+			glPixelZoom(float(winwidth)/spec->width, float(winheight)/spec->height);
 		}
-		//start at the top left and flip it because nobody can decide on a consistent coordinate mapping
-		glRasterPos2i(0,spec->height);
-		glPixelZoom(1.0,-1.0);
+		else {
+			glPixelZoom(1.0,1.0);
+		}*/
+		glPixelZoom(1.0,1.0);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1); //Parrot Fixer 2000
+		glRasterPos2i(0,0); //draw from bottom left
 		//draw image
-		glDrawPixels(spec->width,spec->height,format,GL_UNSIGNED_BYTE,imageCache[cacheIndex].pixels);
+		glDrawPixels(spec->width,spec->height,GL_RGBA,GL_UNSIGNED_BYTE,&imageCache[cacheIndex].pixels[0]);
 	}
 	//flush to viewport
 	glFlush();
 }
 
-/* resets the window size to fit the current image exactly */
+/* resets the window size to fit the current image exactly at 100% pixelzoom (unused at the moment)*/
 void refitWindow() {
 	if (imageCache.size() > 0) {
 		ImageSpec* spec = &imageCache[cacheIndex].spec;
@@ -308,16 +307,6 @@ void refitWindow() {
 void handleKey(unsigned char key, int x, int y){
 	string fn;
 	switch(key){
-		case 'p':
-		case 'P':
-			peekBytes();
-			break;
-
-		case 'z':
-		case 'Z':
-			refitWindow();
-			break;
-		
 		case 'q':		// q - quit
 		case 'Q':
 		case 27:		// esc - quit
@@ -354,12 +343,22 @@ void timer( int value )
 /* main control method that sets up the GL environment
 	and handles command line arguments */
 int main(int argc, char* argv[]){
-	//read arguments as filenames and attempt to read requested files
-	for (int i=1; i<argc; i++) {
-		readImage(string(argv[i]));
+	//read arguments as filenames and attempt to read requested input file
+	if (argc >= 3) {
+		string instr = string(argv[1]);
+		string outstr = string(argv[2]);
+		size_t extPos = outstr.rfind(".png");
+		if (extPos == string::npos || extPos+4 < outstr.length()) { //append ".png" automatically
+			outstr += ".png";
+		}
+		readImage(instr);
+		cout << "writing alphamask to file " << outstr << endl;
+		writeImage(outstr);
 	}
-	//always display first image on load
-	cacheIndex = 0;
+	else {
+		cerr << "usage: alphamask [input] [output].png" << endl;
+		exit(1);
+	}
 
 	// start up the glut utilities
 	glutInit(&argc, argv);
@@ -369,6 +368,9 @@ int main(int argc, char* argv[]){
 	glutInitWindowSize(DEFAULT_WIDTH, DEFAULT_HEIGHT);
 	glutCreateWindow("alphamask Result");
 
+	//if there is an image already loaded, set the resolution to fit it
+	refitWindow();
+	
 	// set up the callback routines to be called when glutMainLoop() detects
 	// an event
 	glutDisplayFunc(draw);	  // display callback

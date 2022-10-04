@@ -1,11 +1,12 @@
 # cpsc4040-GLOIIO project3
+#### OpenGL/GLUT Programs to read, display, modify, and write images using the OpenImageIO API
 Dr. Karamouzas "Green screening"
 
-Program by Owen Book (obook@clemson.edu)
+by Owen Book (obook@clemson.edu)
 
 *CPSC 4040 | Fall 2022*
 
-**OpenGL/GLUT Programs to read, display, modify, and write images using the OpenImageIO API**
+
 
 ### Compilation
 Included is a slightly modified version of Dr. Karamouzas' sample makefile.
@@ -18,6 +19,7 @@ Included is a slightly modified version of Dr. Karamouzas' sample makefile.
 
 ## imgview
 **imgview** is a multi-purpose image viewer that comes with some functions to play around with. It can load multiple images at once and write modified images to files.
+
 #### Controls
 *Left/right arrows: swap between multiple loaded images*
 
@@ -42,10 +44,13 @@ If a file does not exist or cannot be opened, the program will notify you and ig
 
 ## alphamask
 **alphamask** can create and export transparent images. It works best with clear backgrounds such as greenscreens.
+
+
 #### Controls
 The program will automatically display the resulting image.
 
 Q or ESC: quit program
+
 
 #### Command line usage
 Load an image by including its file path, then specify an output file. The input file can be any image format as long as it uses RGBA channels(?).
@@ -58,12 +63,15 @@ If .png is omitted from output, the program will append it automatically. You ca
 
 ## compose
 **compose** draws one image over another, taking transparency into account. It does not support cropping - the background image *B* must be the same size as or larger than the foreground image *A*.
+
+
 #### Controls
 The program will automatically display the resulting image.
 
 W: write result to file (prompt) 
 
 Q or ESC: quit program
+
 
 #### Command line usage
 Load the foreground image A and background image B using their file paths. You can optionally specify an output file with any image format to write the result to that file automatically.
