@@ -1,15 +1,15 @@
 //	OpenGL/GLUT Program to create alpha masks for any greenscreen image
-//	Displays resulting image when done, optional export to file
+//	Displays resulting image when done & exports to file
 //
-//	Usage: alphamask input.(img) output.png
+//	Usage: alphamask input.(img) output.png [3 floats HSV of target] [3 floats HSV of tolerance]
 //	Input can be any image type, output will be png
-//	See "settings.ini" to set chroma-keying sensitivity options (TODO)
 //
 //	CPSC 4040 | Owen Book | October 2022
 
 #include <OpenImageIO/imageio.h>
 #include <iostream>
 #include <string>
+#include <cmath>
 
 #ifdef __APPLE__
 #  pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -27,8 +27,6 @@ OIIO_NAMESPACE_USING
 #define DEFAULT_HEIGHT 600
 //assumed maximum value of pixel data - change if modifying for int, float, etc.
 #define MAX_VAL 255
-//misc settings
-#define PEEK_COUNT 40
 //preprocess macros
 #define maximum(x,y,z) ((x) > (y)? ((x) > (z)? (x) : (z)) : ((y) > (z)? (y) : (z)))
 #define minimum(x,y,z) ((x) < (y)? ((x) < (z)? (x) : (z)) : ((y) < (z)? (y) : (z)))
@@ -59,13 +57,87 @@ static vector<ImageRGBA> imageCache;
 //current index in vector to attempt to load (probably won't be touched in this program)
 static int cacheIndex = 0;
 
-/** PROCESSING FUNCTIONS **/
+/** UTILITY FUNCTIONS **/
 /*	clean up memory of unneeded ImageRGBA
 	don't forget to remove it from imageCache first! */
 void discardImage(ImageRGBA image) {
 	delete image.pixels;
 }
 
+/* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
+pxRGB linkRGB(unsigned char r, unsigned char g, unsigned char b) {
+	pxRGB px;
+	px.red = r;
+	px.green = g;
+	px.blue = b;
+	return px;
+}
+pxRGBA linkRGBA(unsigned char r, unsigned char g, unsigned char b, unsigned char a) {
+	pxRGBA px;
+	px.red = r;
+	px.green = g;
+	px.blue = b;
+	px.alpha = a;
+	return px;
+}
+pxHSV linkHSV(double h, double s, double v) {
+	pxHSV px;
+	px.hue = h;
+	px.saturation = s;
+	px.value = v;
+	return px;
+}
+
+/*convert RGB values into HSV values*/
+pxHSV RGBtoHSV(pxRGB rgb) {
+	pxHSV hsv;
+	double huer, hueg, hueb, max, min, delta;
+	/* convert from 0-255 to 0~1 */
+	huer = rgb.red / 255.0;
+	hueg = rgb.green / 255.0;
+	hueb = rgb.blue / 255.0;
+
+	max = maximum(huer, hueg, hueb);
+	min = minimum(huer, hueg, hueb);
+	hsv.value = max;
+
+	if (max==0) {
+		hsv.hue = 0;
+		hsv.value = 0;
+	}
+	else {
+		delta = max-min;
+		hsv.saturation = delta/max; //https://youtu.be/QYbG1AMSdiY
+		if (delta == 0) {
+			hsv.hue = 0;
+		}
+		else {
+			/* determine hue */
+			if (huer == max) {
+				hsv.hue = (hueg - hueb) / delta;
+			}
+			else if (hueg == max) {
+				hsv.hue = 2.0 + (hueb - huer) / delta;
+			}
+			else {
+				hsv.hue = 4.0 + (huer - hueg) / delta;
+			}
+			hsv.hue *= 60.0;
+			if (hsv.hue < 0) {
+				hsv.hue += 360.0;
+			}
+		}
+	}
+
+	return hsv;
+}
+
+/* shorthand function that double-converts RGBA to HSV, ignoring alpha channel */
+pxHSV RGBAtoHSV(pxRGBA rgba) {
+	return RGBtoHSV(linkRGB(rgba.red, rgba.green, rgba.blue));
+}
+
+/** PROCESSING FUNCTIONS **/
 /*  reads in image from specified filename as RGBA 8bit pixmap
 	puts a new ImageRGBA in the imageCache vector if successful */
 void readImage(string filename) {
@@ -138,79 +210,6 @@ void readImage(string filename) {
 	cacheIndex = imageCache.size()-1;
 }
 
-/* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
-pxRGB linkRGB(unsigned char r, unsigned char g, unsigned char b) {
-	pxRGB px;
-	px.red = r;
-	px.green = g;
-	px.blue = b;
-	return px;
-}
-pxRGBA linkRGBA(unsigned char r, unsigned char g, unsigned char b, unsigned char a) {
-	pxRGBA px;
-	px.red = r;
-	px.green = g;
-	px.blue = b;
-	px.alpha = a;
-	return px;
-}
-pxHSV linkHSV(unsigned char h, unsigned char s, unsigned char v) {
-	pxHSV px;
-	px.hue = h;
-	px.saturation = s;
-	px.value = v;
-	return px;
-}
-
-/*convert RGB values into HSV values*/
-pxHSV RGBtoHSV(pxRGB rgb) {
-	pxHSV hsv;
-	double huer, hueg, hueb, max, min, delta;
-	/* convert from 0-255 to 0~1 */
-	huer = rgb.red / 255.0;
-	hueg = rgb.green / 255.0;
-	hueb = rgb.blue / 255.0;
-
-	max = maximum(huer, hueg, hueb);
-	min = minimum(huer, hueg, hueb);
-	hsv.value = max;
-
-	if (max==0) {
-		hsv.hue = 0;
-		hsv.value = 0;
-	}
-	else {
-		delta = max-min;
-		hsv.saturation = delta/max; //https://youtu.be/QYbG1AMSdiY
-		if (delta == 0) {
-			hsv.hue = 0;
-		}
-		else {
-			/* determine hue */
-			if (huer == max) {
-				hsv.hue = (hueg - hueb) / delta;
-			}
-			else if (hueg == max) {
-				hsv.hue = (hueb - huer) / delta;
-			}
-			else {
-				hsv.hue = (huer - hueg) / delta;
-			}
-			hsv.hue *= 60.0;
-			if (hsv.hue < 0) {
-				hsv.hue += 360.0;
-			}
-		}
-	}
-
-	return hsv;
-}
-
-/* chroma-key image to create alphamask */
-void chromaKey(int hue, int sat, int val) {
-
-}
-
 /* writes currently dixplayed pixmap (as RGBA) to a file
 	(mostly the same as sample code) */
 void writeImage(string filename){
@@ -247,7 +246,6 @@ void writeImage(string filename){
 	// write the image to the file. All channel values in the pixmap are taken to be
 	// unsigned chars. flip using stride to undo same effort in readImage
 	int scanlinesize = xr * channels * sizeof(unsigned char);
-	cout << cacheIndex << endl;
 	if(!outfile->write_image(TypeDesc::UINT8, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
 		cerr << "could not write to file! " << geterror() << endl;
 		return;
@@ -261,6 +259,32 @@ void writeImage(string filename){
 	}
 }
 
+/* chroma-key image to create alphamask using HSV differences
+	"fuzz" arguments determine max difference for each value to keep */
+void chromaKey(pxHSV target, double huefuzz, double satfuzz, double valfuzz) {
+	ImageRGBA image = imageCache[cacheIndex];
+	int xr = image.spec.width;
+	int yr = image.spec.height;
+	for (int i=0; i<xr*yr; i++) {
+		pxHSV comp = RGBAtoHSV(image.pixels[i]);
+		//cut out based on absolute distance from target values
+		//if all three are in range, hide it!
+		double huediff = fabs(comp.hue - target.hue);
+		double satdiff = fabs(comp.saturation - target.saturation);
+		double valdiff = fabs(comp.value - target.value);
+		if (huediff < huefuzz && satdiff < satfuzz && valdiff < valfuzz) {
+			//some smoothing function for pixels way less close
+			double maskalpha = (0.2*(huediff/huefuzz) + 0.4*(satdiff/satfuzz) + 0.4*(valdiff/valfuzz)) - 0.2;
+			//clamp to 0.0~1.0; if the result is like 0.012 don't bother with it
+			maskalpha = (maskalpha < 0.02? 0.0 : maskalpha);
+			maskalpha = (maskalpha > 1.0? 1.0 : maskalpha);
+			
+			//cout << "masking pixel: " << comp.hue << " " << comp.saturation << " " << comp.value << " to alpha value " << maskalpha << endl;
+			image.pixels[i].alpha = (unsigned char)255*maskalpha;
+		}
+	}
+}
+
 /** OPENGL FUNCTIONS **/
 /* main display callback: displays the image of current index from imageCache. 
 if no images are loaded, only draws a black background */
@@ -269,23 +293,17 @@ void draw(){
 	glClearColor(0,0,0,1);
 	glClear(GL_COLOR_BUFFER_BIT);
 	if (imageCache.size() > 0) {
+		//display alphamasked image not the original input via blending
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glEnable(GL_BLEND);
 		//get image spec & current window size
 		ImageSpec* spec = &imageCache[cacheIndex].spec;
-		/*below dead code is WIP that isn't necessary for these two programs;
-			might fix and port over to imgview later*/
-		/*int winwidth = glutGet(GLUT_WINDOW_WIDTH);
-		int winheight = glutGet(GLUT_WINDOW_HEIGHT);
-		if (winwidth < spec->width || winheight < spec->height) {
-			glPixelZoom(float(winwidth)/spec->width, float(winheight)/spec->height);
-		}
-		else {
-			glPixelZoom(1.0,1.0);
-		}*/
 		glPixelZoom(1.0,1.0);
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1); //Parrot Fixer 2000
 		glRasterPos2i(0,0); //draw from bottom left
 		//draw image
 		glDrawPixels(spec->width,spec->height,GL_RGBA,GL_UNSIGNED_BYTE,&imageCache[cacheIndex].pixels[0]);
+		glDisable(GL_BLEND);
 	}
 	//flush to viewport
 	glFlush();
@@ -300,8 +318,7 @@ void refitWindow() {
 }
 
 /*
-   Keyboard Callback Routine: 'c' cycle through colors, 'q' or ESC quit,
-   'w' write the framebuffer to a file.
+   Keyboard Callback Routine
    This routine is called every time a key is pressed on the keyboard
 */
 void handleKey(unsigned char key, int x, int y){
@@ -351,9 +368,24 @@ int main(int argc, char* argv[]){
 		if (extPos == string::npos || extPos+4 < outstr.length()) { //append ".png" automatically
 			outstr += ".png";
 		}
+
+		pxHSV target = linkHSV(120.0, 0.7, 0.7); //fallback
+		pxHSV fuzz = linkHSV(20.0, 0.2, 0.2); //fallback
+		if (argc >= 6) {
+			target = linkHSV(stod(argv[3],nullptr),stod(argv[4],nullptr),stod(argv[5],nullptr));
+			cout << stod(argv[3],nullptr) << stod(argv[4],nullptr) << stod(argv[5],nullptr) << endl;
+		}
+		if (argc >= 9) {
+			fuzz = linkHSV(stod(argv[6],nullptr),stod(argv[7],nullptr),stod(argv[8],nullptr));
+			cout << stod(argv[6],nullptr) << stod(argv[7],nullptr) << stod(argv[8],nullptr) << endl;
+		}
+
+		//do the things
 		readImage(instr);
+		chromaKey(target,fuzz.hue,fuzz.saturation,fuzz.value);
 		cout << "writing alphamask to file " << outstr << endl;
 		writeImage(outstr);
+		cout << "press ESC or Q to close" << endl;
 	}
 	else {
 		cerr << "usage: alphamask [input] [output].png" << endl;

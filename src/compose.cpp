@@ -1,27 +1,17 @@
+//	OpenGL/GLUT Program to do simple image composition of image A over image B
+//	Displays resulting image when done with optional export to file
 //
-//   OpenGL/GLUT Program to read, display, modify, and write images
-//   using the OpenImageIO API
+//	Usage: compose [foreground].png [background] (output)
+//	Inputs can be any image type, but it's recommended the foreground is an output from alphamask.
+//	Foreground must be same size or smaller than background!
+//	There is currently no function to position the foreground image elsewhere.
 //
-//   Load images at launch by including their file paths as arguments
-//   ** Left/right arrows swap between multiple loaded images **
-//
-//   R: read new image from file (prompt)
-//   W: write current image to file (prompt)
-//   I: invert colors of current image
-//   N: randomly add black noise to current image
-//   ** P: display the first set of bytes of the image data in hex **
-//   
-//   Q or ESC: quit program
-//
-//   CPSC 4040 | Owen Book | September 2022
-//
-//   usage: imgview [filenames]
-//
+//	CPSC 4040 | Owen Book | October 2022
 
 #include <OpenImageIO/imageio.h>
 #include <iostream>
-#include <random>
-#include <algorithm>
+#include <string>
+#include <cmath>
 
 #ifdef __APPLE__
 #  pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -39,43 +29,119 @@ OIIO_NAMESPACE_USING
 #define DEFAULT_HEIGHT 600
 //assumed maximum value of pixel data - change if modifying for int, float, etc.
 #define MAX_VAL 255
-//misc settings (note: noise chance is in statics section)
-#define PEEK_COUNT 40
+//preprocess macros
+#define maximum(x,y,z) ((x) > (y)? ((x) > (z)? (x) : (z)) : ((y) > (z)? (y) : (z)))
+#define minimum(x,y,z) ((x) < (y)? ((x) < (z)? (x) : (z)) : ((y) < (z)? (y) : (z)))
 
-//simple struct to hold image spec and pixels as unsigned chars
-typedef struct image_uint8_t {
+//utility struct that holds RGBA 4-tuple of chars
+typedef struct pixel_rgba_t {
+	unsigned char red, green, blue, alpha;
+} pxRGBA;
+//utility struct that holds RGB 3-tuple of chars
+typedef struct pixel_rgb_t {
+	unsigned char red, green, blue;
+} pxRGB;
+//utility struct that holds HSV 3-tuple of doubles
+typedef struct pixel_hsv_t {
+	double hue, saturation, value;
+} pxHSV;
+
+//struct to tie image spec and pixels together
+typedef struct image_rgba_uint8_t {
 	ImageSpec spec;
-	bool hasAlpha;
-	unsigned char* pixels;
-} ByteImage;
+	pxRGBA* pixels;
+} ImageRGBA;
+
 
 /** CONTROL & GLOBAL STATICS **/
 //list of read images for multi-image viewing mode
-static vector<ByteImage> imageCache;
-//current index in vector to attempt to load (left/right arrows)
+static vector<ImageRGBA> imageCache;
+//current index in vector to attempt to load (probably won't be touched in this program)
 static int cacheIndex = 0;
-//noisify chance (1/noiseDenom to replace with black pixel)
-static int noiseDenom = 5;
-//frame counter, currently only used for better random generation
-static int drawCount = 0;
 
-/** DEBUG FUNCTIONS **/
-/* prints the first PEEK bytes of the current image to stdout 
-	does nothing if no image is loaded */
-void peekBytes() {
-	if (imageCache.size() > 0) {
-		cout << "first " << PEEK_COUNT << " bytes of this image in memory (note that it is vertically flipped when loaded): " << endl;
-		for (int i=0; i<PEEK_COUNT; i++) {
-			cout << hex << +imageCache[cacheIndex].pixels[i] << " ";
-		}
-		cout << dec << endl;
+/** UTILITY FUNCTIONS **/
+/*	clean up memory of unneeded ImageRGBA
+	don't forget to remove it from imageCache first! */
+void discardImage(ImageRGBA image) {
+	delete image.pixels;
+}
+
+/* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
+pxRGB linkRGB(unsigned char r, unsigned char g, unsigned char b) {
+	pxRGB px;
+	px.red = r;
+	px.green = g;
+	px.blue = b;
+	return px;
+}
+pxRGBA linkRGBA(unsigned char r, unsigned char g, unsigned char b, unsigned char a) {
+	pxRGBA px;
+	px.red = r;
+	px.green = g;
+	px.blue = b;
+	px.alpha = a;
+	return px;
+}
+pxHSV linkHSV(double h, double s, double v) {
+	pxHSV px;
+	px.hue = h;
+	px.saturation = s;
+	px.value = v;
+	return px;
+}
+
+/*convert RGB values into HSV values*/
+pxHSV RGBtoHSV(pxRGB rgb) {
+	pxHSV hsv;
+	double huer, hueg, hueb, max, min, delta;
+	/* convert from 0-255 to 0~1 */
+	huer = rgb.red / 255.0;
+	hueg = rgb.green / 255.0;
+	hueb = rgb.blue / 255.0;
+
+	max = maximum(huer, hueg, hueb);
+	min = minimum(huer, hueg, hueb);
+	hsv.value = max;
+
+	if (max==0) {
+		hsv.hue = 0;
+		hsv.value = 0;
 	}
-	else cout << "cannot peek when no images are loaded" << endl;
+	else {
+		delta = max-min;
+		hsv.saturation = delta/max; //https://youtu.be/QYbG1AMSdiY
+		if (delta == 0) {
+			hsv.hue = 0;
+		}
+		else {
+			/* determine hue */
+			if (huer == max) {
+				hsv.hue = (hueg - hueb) / delta;
+			}
+			else if (hueg == max) {
+				hsv.hue = 2.0 + (hueb - huer) / delta;
+			}
+			else {
+				hsv.hue = 4.0 + (huer - hueg) / delta;
+			}
+			hsv.hue *= 60.0;
+			if (hsv.hue < 0) {
+				hsv.hue += 360.0;
+			}
+		}
+	}
+
+	return hsv;
+}
+
+/* shorthand function that double-converts RGBA to HSV, ignoring alpha channel */
+pxHSV RGBAtoHSV(pxRGBA rgba) {
+	return RGBtoHSV(linkRGB(rgba.red, rgba.green, rgba.blue));
 }
 
 /** PROCESSING FUNCTIONS **/
 /*  reads in image from specified filename as RGBA 8bit pixmap
-	puts a new ByteImage in the imageCache vector if successful */
+	puts a new ImageRGBA in the imageCache vector if successful */
 void readImage(string filename) {
 	std::unique_ptr<ImageInput> in = ImageInput::open(filename);
 	if (!in) {
@@ -85,35 +151,63 @@ void readImage(string filename) {
 	}
 
 	//store spec and get metadata from it
-	ByteImage image;
+	ImageRGBA image;
 	image.spec = in->spec();
 	int xr = image.spec.width;
 	int yr = image.spec.height;
 	int channels = image.spec.nchannels;
 
-	//declare memory to read image data
-	unsigned char* px = new unsigned char[xr*yr*channels];
+	//declare temp memory to read raw image data
+	unsigned char temp_px[xr*yr*channels];
 
-	//read in image data, mapping as unsigned char
-	in->read_image(TypeDesc::UINT8, px);
-
-	//store in struct, close input
-	image.pixels = px;
-	switch(channels) {
-		case 1:
-		case 3:
-			image.hasAlpha = false;
-			break;
-		case 2:
-		case 4:
-			image.hasAlpha = true;
-			break;
-		default:
-			image.hasAlpha = true;
-			break;
+	// read the image into the temp_px from the input file, flipping it upside down using negative y-stride,
+	// since OpenGL pixmaps have the bottom scanline first, and 
+	// oiio expects the top scanline first in the image file.
+	int scanlinesize = xr * channels * sizeof(unsigned char);
+	if(!in->read_image(TypeDesc::UINT8, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
+		cerr << "Could not read image from " << filename << ", error = " << geterror() << endl;
+		//cancel routine
+		return;
+  	}
+	
+	//allocate data for converted pxRGBA version
+	image.pixels = new pxRGBA[xr*yr];
+	//convert and store raw image data as pxRGBAs
+	for (int i=0; i<yr*xr; i++) {
+		switch(channels) {
+			//this could be more cleanly programmed but the less convoluted the better
+			case 1: //grayscale
+				image.pixels[i].red = temp_px[i];
+				image.pixels[i].green = temp_px[i];
+				image.pixels[i].blue = temp_px[i];
+				image.pixels[i].alpha = 255;
+				break;
+			case 2: //weird grayscale with alpha (just covering my ass here)
+				image.pixels[i].red = temp_px[2*i];
+				image.pixels[i].green = temp_px[2*i];
+				image.pixels[i].blue = temp_px[2*i];
+				image.pixels[i].alpha = temp_px[(2*i)+1];
+				break;
+			case 3: //RGB
+				image.pixels[i].red = temp_px[(3*i)];
+				image.pixels[i].green = temp_px[(3*i)+1];
+				image.pixels[i].blue = temp_px[(3*i)+2];
+				image.pixels[i].alpha = 255;
+				break;
+			case 4: //RGBA
+				image.pixels[i].red = temp_px[(4*i)];
+				image.pixels[i].green = temp_px[(4*i)+1];
+				image.pixels[i].blue = temp_px[(4*i)+2];
+				image.pixels[i].alpha = temp_px[(4*i)+3];
+				break;
+			default: //something weird, just do nothing
+				break;
+		}
 	}
+
+	//close input
 	in->close();
-	//store struct in cache and switch to display the image
+	//store struct in cache and switch to display this image
 	imageCache.push_back(image);
 	cacheIndex = imageCache.size()-1;
 }
@@ -121,10 +215,18 @@ void readImage(string filename) {
 /* writes currently dixplayed pixmap (as RGBA) to a file
 	(mostly the same as sample code) */
 void writeImage(string filename){
-	int xr = glutGet(GLUT_WINDOW_WIDTH);
-	int yr = glutGet(GLUT_WINDOW_HEIGHT);
+	int xr = imageCache[cacheIndex].spec.width;
+	int yr = imageCache[cacheIndex].spec.height;
 	int channels = 4;
-	unsigned char px[channels * xr * yr];
+	//temporary 1d array to stick all the pxRGBA data into
+	//write_image does not like my structs >:(
+	unsigned char temp_px[xr*yr*channels];
+	for (int i=0; i<xr*yr; i++) {
+		temp_px[(4*i)] = imageCache[cacheIndex].pixels[i].red;
+		temp_px[(4*i)+1] = imageCache[cacheIndex].pixels[i].green;
+		temp_px[(4*i)+2] = imageCache[cacheIndex].pixels[i].blue;
+		temp_px[(4*i)+3] = imageCache[cacheIndex].pixels[i].alpha;
+	}
 
 	// create the oiio file handler for the image
 	std::unique_ptr<ImageOutput> outfile = ImageOutput::create(filename);
@@ -132,20 +234,6 @@ void writeImage(string filename){
 		cerr << "could not create output file! " << geterror() << endl;
 		//cancel routine
 		return;
-	}
-
-	// get the current pixels from the OpenGL framebuffer and store in pixmap
-	glReadPixels(0, 0, xr, yr, GL_RGBA, GL_UNSIGNED_BYTE, px);
-
-	//FLIP the image data so that it isn't upside down (framebuffer starts at bottom left)
-	unsigned char* pxflip = new unsigned char [xr*yr*channels];
-	int linebytes = xr*channels;
-	int destline = 0; //my pointer math is bad today
-	for (int i=yr-1; i>=0; i--) {
-		for (int j=0; j<linebytes; j++) {
-			pxflip[(linebytes*i)+j] = px[(destline*linebytes)+j];
-		}
-		destline++;
 	}
 
 	// open a file for writing the image. The file header will indicate an image of
@@ -158,8 +246,9 @@ void writeImage(string filename){
 	}
 
 	// write the image to the file. All channel values in the pixmap are taken to be
-	// unsigned chars
-	if(!outfile->write_image(TypeDesc::UINT8, pxflip)){
+	// unsigned chars. flip using stride to undo same effort in readImage
+	int scanlinesize = xr * channels * sizeof(unsigned char);
+	if(!outfile->write_image(TypeDesc::UINT8, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
 		cerr << "could not write to file! " << geterror() << endl;
 		return;
 	}
@@ -172,65 +261,9 @@ void writeImage(string filename){
 	}
 }
 
-/* inverts all colors of the currently loaded image
-	attempts to ignore alpha channel */
-void invert() {
-	if (imageCache.size() > 0) {
-		ImageSpec* spec = &imageCache[cacheIndex].spec;
-		unsigned char* px = imageCache[cacheIndex].pixels;
-		if (imageCache[cacheIndex].hasAlpha) {
-			for (int i=0; i<spec->width*spec->height*spec->nchannels; i++) {
-				//ignore every channel'th byte since it is most likely the alpha channel
-				if ((i+1)%spec->nchannels != spec->nchannels) {
-					px[i] = MAX_VAL-px[i];
-				}
-			}
-		}
-		else {
-			for (int i=0; i<spec->width*spec->height*spec->nchannels; i++) {
-				px[i] = MAX_VAL-px[i];
-			}
-		}
-		cout << "inverted image" << endl;
-	}
-	else cout << "cannot invert when no images are loaded" << endl;
-}
-
-/* randomly replaces pixels with black
-	chance defined by 1/noiseDenom */
-void noisify() {
-	//the c++ library for this is kind of gross looking but cpp.com has a good example
-	default_random_engine gen(time(NULL)+drawCount);
-	uniform_int_distribution<int> dist(1,noiseDenom);
-	auto rando = bind(dist,gen);
-	if (imageCache.size() > 0) {
-		ImageSpec* spec = &imageCache[cacheIndex].spec;
-		unsigned char* px = imageCache[cacheIndex].pixels;
-		if (imageCache[cacheIndex].hasAlpha) {
-			for (int i=0; i<spec->width*spec->height; i++) {
-				if (rando() == 1) {
-					//set only the color/luminance values to 0
-					for (int j=0; j<spec->nchannels; j++) {
-						if ((j+1)%spec->nchannels != spec->nchannels) {
-							px[(spec->nchannels*i)+j] = 0;
-						}
-					}
-				}
-			}
-		}
-		else {
-			for (int i=0; i<spec->width*spec->height; i++) {
-				if (rando() == 1) {
-					//set all values to 0
-					for (int j=0; j<spec->nchannels; j++) {
-						px[(spec->nchannels*i)+j] = 0;
-					}
-				}
-			}
-		}
-		cout << "added noise" << endl;
-	}
-	else cout << "cannot add noise when no images are loaded" << endl;
+//TODO
+void compose() {
+	//haha yes
 }
 
 /** OPENGL FUNCTIONS **/
@@ -238,44 +271,26 @@ void noisify() {
 if no images are loaded, only draws a black background */
 void draw(){
 	//clear and make black background
-	glClearColor(0,0,0,0);
+	glClearColor(0,0,0,1);
 	glClear(GL_COLOR_BUFFER_BIT);
 	if (imageCache.size() > 0) {
-		//get image spec
+		//display alphamasked image not the original input via blending
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glEnable(GL_BLEND);
+		//get image spec & current window size
 		ImageSpec* spec = &imageCache[cacheIndex].spec;
-		//fit window to image
-		glutReshapeWindow(spec->width,spec->height);
-		//determine pixel format
-		GLenum format;
-		switch(spec->nchannels) {
-			case 1:
-				format = GL_LUMINANCE;
-				glPixelStorei(GL_UNPACK_ALIGNMENT, 1); //Parrot Fixer 2000
-				/* my guess is that for some reason GL doesn't default to reading byte-by-byte?? */
-				break;
-			case 2:
-				format = GL_LUMINANCE_ALPHA;
-				break;
-			case 3:
-				format = GL_RGB;
-				break;
-			case 4:
-				format = GL_RGBA;
-				break;
-		}
-		//start at the top left and flip it because nobody can decide on a consistent coordinate mapping
-		glRasterPos2i(0,spec->height);
-		glPixelZoom(1.0,-1.0);
+		glPixelZoom(1.0,1.0);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1); //Parrot Fixer 2000
+		glRasterPos2i(0,0); //draw from bottom left
 		//draw image
-		glDrawPixels(spec->width,spec->height,format,GL_UNSIGNED_BYTE,imageCache[cacheIndex].pixels);
+		glDrawPixels(spec->width,spec->height,GL_RGBA,GL_UNSIGNED_BYTE,&imageCache[cacheIndex].pixels[0]);
+		glDisable(GL_BLEND);
 	}
-	//increment draws count
-	drawCount++;
 	//flush to viewport
 	glFlush();
 }
 
-/* resets the window size to fit the current image exactly */
+/* resets the window size to fit the current image exactly at 100% pixelzoom (unused at the moment)*/
 void refitWindow() {
 	if (imageCache.size() > 0) {
 		ImageSpec* spec = &imageCache[cacheIndex].spec;
@@ -284,47 +299,12 @@ void refitWindow() {
 }
 
 /*
-   Keyboard Callback Routine: 'c' cycle through colors, 'q' or ESC quit,
-   'w' write the framebuffer to a file.
+   Keyboard Callback Routine
    This routine is called every time a key is pressed on the keyboard
 */
 void handleKey(unsigned char key, int x, int y){
 	string fn;
 	switch(key){
-		case 'p':
-		case 'P':
-			peekBytes();
-			break;
-
-		case 'z':
-		case 'Z':
-			refitWindow();
-			break;
-
-		case 'r':
-		case 'R':
-			cout << "enter input filename: ";
-			cin >> fn;
-			readImage(fn);
-			break;
-		
-		case 'w':
-		case 'W':
-			cout << "enter output filename: ";
-			cin >> fn;
-			writeImage(fn);
-			break;
-
-		case 'i':
-		case 'I':
-			invert();
-			break;
-		
-		case 'n':
-		case 'N':
-			noisify();
-			break;
-		
 		case 'q':		// q - quit
 		case 'Q':
 		case 27:		// esc - quit
@@ -332,27 +312,6 @@ void handleKey(unsigned char key, int x, int y){
 		
 		default:		// not a valid key -- just ignore it
 			return;
-	}
-}
-
-void specialKey(int key, int x, int y) {
-	switch(key) {
-		case GLUT_KEY_LEFT:
-			//cout << "was displaying image " << cacheIndex+1 << " of " << imageCache.size() << endl;
-			if (cacheIndex > 0) {
-				cacheIndex--;
-				cout << "image " << cacheIndex+1 << " of " << imageCache.size() << endl;
-			}
-			break;
-		case GLUT_KEY_RIGHT:
-			//cout << "was displaying image " << cacheIndex+1 << " of " << imageCache.size() << endl;
-			if (cacheIndex < imageCache.size()-1 && imageCache.size() > 0) {
-				cacheIndex++;
-				cout << "image " << cacheIndex+1 << " of " << imageCache.size() << endl;
-			}
-			break;
-		default:
-			return; //ignore other keys
 	}
 }
 
@@ -382,12 +341,25 @@ void timer( int value )
 /* main control method that sets up the GL environment
 	and handles command line arguments */
 int main(int argc, char* argv[]){
-	//read arguments as filenames and attempt to read requested files
-	for (int i=1; i<argc; i++) {
-		readImage(string(argv[i]));
+	//read arguments as filenames and attempt to read requested input files
+	if (argc >= 3) {
+		string Astr = string(argv[1]);
+		string Bstr = string(argv[2]);
+		string outstr = string(argv[3]);
+		size_t extPos = outstr.rfind(".png");
+		if (extPos == string::npos || extPos+4 < outstr.length()) { //append ".png" automatically
+			outstr += ".png";
+		}
+		//TODO finish the input handling lmao
+
+		//do the things
+		readImage(Astr);
+		readImage(Bstr);
 	}
-	//always display first image on load
-	cacheIndex = 0;
+	else {
+		cerr << "usage: compose [foreground].png [background] [output]" << endl;
+		exit(1);
+	}
 
 	// start up the glut utilities
 	glutInit(&argc, argv);
@@ -395,13 +367,15 @@ int main(int argc, char* argv[]){
 	// create the graphics window, giving width, height, and title text
 	glutInitDisplayMode(GLUT_SINGLE | GLUT_RGBA);
 	glutInitWindowSize(DEFAULT_WIDTH, DEFAULT_HEIGHT);
-	glutCreateWindow("Get the Picture");
+	glutCreateWindow("compose Result");
 
+	//if there is an image already loaded, set the resolution to fit it
+	refitWindow();
+	
 	// set up the callback routines to be called when glutMainLoop() detects
 	// an event
 	glutDisplayFunc(draw);	  // display callback
 	glutKeyboardFunc(handleKey);	  // keyboard callback
-	glutSpecialFunc(specialKey); //special callback (arrow keys, etc.)
 	glutReshapeFunc(handleReshape); // window resize callback
 	glutTimerFunc(0, timer, 0); //timer func to force redraws
 

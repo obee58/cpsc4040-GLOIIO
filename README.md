@@ -39,10 +39,10 @@ Load images at launch by including their file paths as arguments. You can add as
 If a file does not exist or cannot be opened, the program will notify you and ignore it. This goes for both reading and writing within the program as well.
 
 ## alphamask
-**alphamask** can create and export transparent images. It works best with clear backgrounds such as greenscreens.
+**alphamask** can create and export transparent images. It works best with clear backgrounds such as greenscreens. This version does some alpha smoothing for colors that are just barely masked out so that the image appears less jagged.
 
 #### Controls
-The program will automatically display the resulting image.
+The program will automatically display the resulting image once computation is complete.
 
 Q or ESC: quit program
 
@@ -50,11 +50,20 @@ Q or ESC: quit program
 #### Command line usage
 Load an image by including its file path, then specify an output file. The input file can be any image format as long as it uses RGBA channels(?).
 
-```./alphamask [input] [output].png```
+From there, you must specify a "target" of HSV values (the color you want to mask out) and optionally a "fuzz" value of HSV values (the tolerance in difference for those colors). YOu may need to run the program several times, tweaking your inputs to get the desired result.
+
+```./alphamask [input] [output].png [0~360] [0~1] [0~1] [0~360] [0~1] [0~1]```
 
 If the input file does not exist or cannot be opened, the program will exit.
 
 If .png is omitted from output, the program will append it automatically. You cannot print any other image format from this program - convert it with other software.
+
+If not enough values are provided for target or fuzz, the program will ignore the rest. (It's not particularly helpful but at least you can see a result - a .cfg file was planned but trying to user-proof it was a nightmare)
+
+#### My inputs for masking each image
+D.House: 135.0 0.7 0.4 60.0 0.5 0.5
+Hand: 90.0 0.5 0.5 40.0 0.6 0.6
+Scientist: 130.0 0.7 0.6 40.0 0.7 0.6 (best I could get without wrecking parts of the image)
 
 ## compose
 **compose** draws one image over another, taking transparency into account. It does not support cropping - the background image *B* must be the same size as or larger than the foreground image *A*.
