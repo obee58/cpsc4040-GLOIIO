@@ -10,9 +10,14 @@ else
 endif
 
 # I have spent an hour on fixing this makefile and make refuses to read a list one-by-one
-# just copy the line and replace the filenames
-default:
+# just copy the lines and replace the filenames
+default: clean alphamask compose
+
+imgview:
+	${CXX} ${CPPFLAGS} -o imgview src/imgview.cpp ${LD}
+alphamask:
 	${CXX} ${CPPFLAGS} -o alphamask src/alphamask.cpp ${LD}
+compose:
 	${CXX} ${CPPFLAGS} -o compose src/compose.cpp ${LD}
 
 clean:

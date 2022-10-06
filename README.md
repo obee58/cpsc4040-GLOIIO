@@ -61,9 +61,11 @@ If .png is omitted from output, the program will append it automatically. You ca
 If not enough values are provided for target or fuzz, the program will ignore the rest. (It's not particularly helpful but at least you can see a result - a .cfg file was planned but trying to user-proof it was a nightmare)
 
 #### My inputs for masking each image
-D.House: 135.0 0.7 0.4 60.0 0.5 0.5
-Hand: 90.0 0.5 0.5 40.0 0.6 0.6
-Scientist: 130.0 0.7 0.6 40.0 0.7 0.6 (best I could get without wrecking parts of the image)
+D.House: 135.0 0.7 0.4 60.0 0.5 0.5 - there's a cloud of low alpha pixels to the left, but it's not a big issue
+
+Hand: 90.0 0.5 0.5 40.0 0.6 0.6 - this one looks pretty clean!
+
+Scientist: 130.0 0.7 0.6 40.0 0.7 0.6 - best I could get without wrecking parts of the image
 
 ## compose
 **compose** draws one image over another, taking transparency into account. It does not support cropping - the background image *B* must be the same size as or larger than the foreground image *A*.

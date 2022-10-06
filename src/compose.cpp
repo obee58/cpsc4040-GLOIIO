@@ -2,7 +2,7 @@
 //	Displays resulting image when done with optional export to file
 //
 //	Usage: compose [foreground].png [background] (output)
-//	Inputs can be any image type, but it's recommended the foreground is an output from alphamask.
+//	Inputs can be any image type, but it's recommended the foreground is from running alphamask.
 //	Foreground must be same size or smaller than background!
 //	There is currently no function to position the foreground image elsewhere.
 //
@@ -33,18 +33,22 @@ OIIO_NAMESPACE_USING
 #define maximum(x,y,z) ((x) > (y)? ((x) > (z)? (x) : (z)) : ((y) > (z)? (y) : (z)))
 #define minimum(x,y,z) ((x) < (y)? ((x) < (z)? (x) : (z)) : ((y) < (z)? (y) : (z)))
 
-//utility struct that holds RGBA 4-tuple of chars
+//struct that holds RGBA 4-tuple of chars
 typedef struct pixel_rgba_t {
 	unsigned char red, green, blue, alpha;
 } pxRGBA;
-//utility struct that holds RGB 3-tuple of chars
+//struct that holds RGB 3-tuple of chars
 typedef struct pixel_rgb_t {
 	unsigned char red, green, blue;
 } pxRGB;
-//utility struct that holds HSV 3-tuple of doubles
+//struct that holds HSV 3-tuple of doubles
 typedef struct pixel_hsv_t {
 	double hue, saturation, value;
 } pxHSV;
+//struct that holds RGBA 4-tuple of doubles (0~1)
+typedef struct floating_rgba_t {
+	double red, green, blue, alpha;
+} flRGBA;
 
 //struct to tie image spec and pixels together
 typedef struct image_rgba_uint8_t {
@@ -90,14 +94,33 @@ pxHSV linkHSV(double h, double s, double v) {
 	return px;
 }
 
+/* get percents of maximum from pxRGBA as a flRGBA */
+flRGBA percentify(pxRGBA px) {
+	flRGBA pct;
+	pct.red = double(px.red)/MAX_VAL;
+	pct.green = double(px.green)/MAX_VAL;
+	pct.blue = double(px.blue)/MAX_VAL;
+	pct.alpha = double(px.alpha)/MAX_VAL;
+	return pct;
+}
+
+/* get premultiplied/associated version of a pxRGBA */
+pxRGBA premult(pxRGBA pure) {
+	double a = double(pure.alpha)/MAX_VAL; //alpha 0~1
+	unsigned char r = pure.red*a;
+	unsigned char g = pure.green*a;
+	unsigned char b = pure.blue*a;
+	return linkRGBA(r,g,b,pure.alpha);
+}
+
 /*convert RGB values into HSV values*/
 pxHSV RGBtoHSV(pxRGB rgb) {
 	pxHSV hsv;
 	double huer, hueg, hueb, max, min, delta;
-	/* convert from 0-255 to 0~1 */
-	huer = rgb.red / 255.0;
-	hueg = rgb.green / 255.0;
-	hueb = rgb.blue / 255.0;
+	/* convert from 0-MAX_VAL to 0~1 */
+	huer = rgb.red / double(MAX_VAL);
+	hueg = rgb.green / double(MAX_VAL);
+	hueb = rgb.blue / double(MAX_VAL);
 
 	max = maximum(huer, hueg, hueb);
 	min = minimum(huer, hueg, hueb);
@@ -180,7 +203,7 @@ void readImage(string filename) {
 				image.pixels[i].red = temp_px[i];
 				image.pixels[i].green = temp_px[i];
 				image.pixels[i].blue = temp_px[i];
-				image.pixels[i].alpha = 255;
+				image.pixels[i].alpha = MAX_VAL;
 				break;
 			case 2: //weird grayscale with alpha (just covering my ass here)
 				image.pixels[i].red = temp_px[2*i];
@@ -192,7 +215,7 @@ void readImage(string filename) {
 				image.pixels[i].red = temp_px[(3*i)];
 				image.pixels[i].green = temp_px[(3*i)+1];
 				image.pixels[i].blue = temp_px[(3*i)+2];
-				image.pixels[i].alpha = 255;
+				image.pixels[i].alpha = MAX_VAL;
 				break;
 			case 4: //RGBA
 				image.pixels[i].red = temp_px[(4*i)];
@@ -261,9 +284,35 @@ void writeImage(string filename){
 	}
 }
 
-//TODO
-void compose() {
-	//haha yes
+/* slap image A over image B, compositing them into just image B
+	both indices must be in bounds, A must be same size or smaller than B */
+void compose(int Aindex, int Bindex) {
+	if (Bindex < 0 || Aindex < 0 
+		|| Bindex >= imageCache.size() || Aindex >= imageCache.size()) {
+		cerr << "compose() got weird indices!" << endl;
+		return;
+	}
+	ImageRGBA* A = &imageCache[Aindex];
+	ImageRGBA* B = &imageCache[Bindex];
+	ImageSpec* specA = &A->spec;
+	ImageSpec* specB = &B->spec;
+	if (specA->height > specB->height || specA->width > specB->width) {
+		cerr << "foreground is too big to fit on background!" << endl;
+		return;
+	}
+	for (int i=0; i<specB->height*specB->width; i++) {
+		//make 0~1 value copies of pixels & their premultiplied versions
+		flRGBA pxpctA = percentify(A->pixels[i]);
+		flRGBA pxpctB = percentify(B->pixels[i]);
+		flRGBA prmpctA = percentify(premult(A->pixels[i]));
+		flRGBA prmpctB = percentify(premult(B->pixels[i]));
+		//apply over to each channel, overwriting background B
+		B->pixels[i].red = 255*(prmpctA.red + (1.0-pxpctA.alpha)*prmpctB.red);
+		B->pixels[i].green = 255*(prmpctA.green + (1.0-pxpctA.alpha)*prmpctB.green);
+		B->pixels[i].blue = 255*(prmpctA.blue + (1.0-pxpctA.alpha)*prmpctB.blue);
+		B->pixels[i].alpha = 255*(pxpctA.alpha + (1.0-pxpctA.alpha)*pxpctB.alpha);
+	}
+	cacheIndex = Bindex; //show the resulting image
 }
 
 /** OPENGL FUNCTIONS **/
@@ -274,7 +323,7 @@ void draw(){
 	glClearColor(0,0,0,1);
 	glClear(GL_COLOR_BUFFER_BIT);
 	if (imageCache.size() > 0) {
-		//display alphamasked image not the original input via blending
+		//display alphamasked image properly via blending
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glEnable(GL_BLEND);
 		//get image spec & current window size
@@ -345,19 +394,20 @@ int main(int argc, char* argv[]){
 	if (argc >= 3) {
 		string Astr = string(argv[1]);
 		string Bstr = string(argv[2]);
-		string outstr = string(argv[3]);
-		size_t extPos = outstr.rfind(".png");
-		if (extPos == string::npos || extPos+4 < outstr.length()) { //append ".png" automatically
-			outstr += ".png";
-		}
-		//TODO finish the input handling lmao
 
 		//do the things
 		readImage(Astr);
 		readImage(Bstr);
+		compose(0,1);
+
+		//output if given 3rd filename (no default extension appending, sorry)
+		if (argc >= 4) {
+			string outstr = string(argv[3]);
+			writeImage(outstr);
+		}
 	}
 	else {
-		cerr << "usage: compose [foreground].png [background] [output]" << endl;
+		cerr << "usage: compose [foreground].png [background] (output)" << endl;
 		exit(1);
 	}
 
