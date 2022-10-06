@@ -1,5 +1,5 @@
 # cpsc4040-GLOIIO project3
-#### OpenGL/GLUT Programs to read, display, modify, and write images using the OpenImageIO API
+#### OpenGL/GLUT Program Suite to read, display, modify, and write images using the OpenImageIO API
 Dr. Karamouzas "Green screening"
 
 by Owen Book (obook@clemson.edu)
@@ -7,9 +7,15 @@ by Owen Book (obook@clemson.edu)
 *CPSC 4040 | Fall 2022*
 
 ### Compilation
-Included is a slightly modified version of Dr. Karamouzas' sample makefile.
+Makefile is included. You can run these commands:
 
-`make`: compile the code into the program suite
+`make project3` or `make`: compile only alphamask and compose
+
+`make all`: compile all code into the program suite
+
+`make recompile`: clean compiled outputs and recompile all code into the program suite
+
+`make [imgview, alphamask, compose]`: compile just one program at a time
 
 `make clean`: delete compiled outputs (will not touch images the program creates)
 
