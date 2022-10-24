@@ -1,24 +1,22 @@
-//	OpenGL/GLUT Program to do simple image composition of image A over image B
-//	Displays resulting image when done with optional export to file
+//	convolve: OpenGL & OIIO program to apply convolution filters to an image multiple times
 //
-//	Usage: compose [foreground].png [background] (output)
-//	Inputs can be any image type, but it's recommended the foreground is from running alphamask.
-//	Foreground must be same size or smaller than background!
-//	There is currently no function to position the foreground image elsewhere.
+//	Usage: convolve [filter].filt [input].png (output)
+//	A .filt file is plaintext full of any numerical values
+//	that specifies its size and weights.
+//	See README.md for more details
 //
 //	CPSC 4040 | Owen Book | October 2022
-
 #include <OpenImageIO/imageio.h>
 #include <iostream>
-#include <ifstream>
+#include <fstream>
 #include <string>
 #include <cmath>
 
 #ifdef __APPLE__
-#  pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#  include <GLUT/glut.h>
+	#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+	#include <GLUT/glut.h>
 #else
-#  include <GL/glut.h>
+	#include <GL/glut.h>
 #endif
 
 using namespace std;
@@ -28,10 +26,11 @@ OIIO_NAMESPACE_USING
 //default window dimensions
 #define DEFAULT_WIDTH 600	
 #define DEFAULT_HEIGHT 600
-//assumed maximum value of pixel data - change if modifying for int, float, etc.
+//assumed maximum value of pixel data - don't touch it kiddo
 #define MAX_VAL 255
-//preprocess macros
-#define percentOf(a,max) (double)a/max
+//preprocess macros aka math shorthand
+#define percentOf(a,max) ((double)a/max)
+#define contigIndex(row,col,wid) ((row*wid)+col) //converts row & column into 1d array index
 #define maximum(x,y,z) ((x) > (y)? ((x) > (z)? (x) : (z)) : ((y) > (z)? (y) : (z)))
 #define minimum(x,y,z) ((x) < (y)? ((x) < (z)? (x) : (z)) : ((y) < (z)? (y) : (z)))
 
@@ -57,44 +56,49 @@ typedef struct image_rgba_uint8_t {
 	ImageSpec spec;
 	pxRGBA* pixels;
 } ImageRGBA;
-//struct representing raw .filt data before conversion
+//struct representing .filt with calculated scale factor
 typedef struct convolve_filt_t {
 	int size; //NxN
+	double scale;
 	double* kernel;
 } RawFilter;
-//struct representing convolution filter, converted to -1~1 floating values and scale factor
-typedef struct convolve_filt_normalized_t {
-	int size; //NxN
-	double scalefactor;
-	double* kernel;
-} NormFilter;
 
 
 /** CONTROL & GLOBAL STATICS **/
 //list of read images for multi-image viewing mode
 static vector<ImageRGBA> imageCache;
 //list of loaded filters (only one is used here but would be a nice function to add in the future)
-static vector<NormFilter> filtCache;
+static vector<RawFilter> filtCache;
 //current index in vector to draw/use/modify
 static int imageIndex = 0;
 static int filtIndex = 0;
+//output filename if provided
+static string outstr;
 
 //TODO move these to separate file as library?
 /** UTILITY FUNCTIONS **/
 /*	clean up memory of unneeded ImageRGBA
-	don't forget to remove it from imageCache first! */
+ *	don't forget to remove it from imageCache first! 
+ *	this will not deallocate the ImageSpec i don't think */
 void discardImage(ImageRGBA image) {
 	delete image.pixels;
 }
 /*	clean up memory of unneeded RawFilter
- *	call this after converting to NormFilter */
+ *	don't forget to remove it from filtCache first! */
 void discardRawFilt(RawFilter filt) {
 	delete filt.kernel;
 }
-/*	clean up memory of unneeded NormFilter
- *	don't forget to remove it from filtCache first! */
-void discardNormFilt(NormFilter filt) {
-	delete filt.kernel;
+
+/* math functions i wasn't sure i could do as preprocessor macros */
+int clampInt(int x, int min, int max) {
+	if (x < min) { return min; }
+	if (x > max) { return max; }
+	return x;
+}
+double clampDouble(double x, double min, double max) {
+	if (x < min) { return min; }
+	if (x > max) { return max; }
+	return x;
 }
 
 /* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
@@ -312,58 +316,141 @@ void writeImage(string filename){
 }
 
 
-/*  reads in filter data from specified filename as RawFilter and converts it to NormFilter
-	puts a new NormFilter in the filtCache vector if successful */
+/*  reads in filter data from specified filename as RawFilter
+	puts a new RawFilter in the filtCache vector if successful */
 void readFilter(string filename) {
-	ifstream filt(filename);
+	ifstream data(filename);
 	if (!filt) {
 		cerr << "could not open .filt file!" << endl;
 		return;
 	}
 	
-	RawFilter data;
+	RawFilter filt;
 	//read in size & allocate accordingly
-	filt >> data.size;
-	int n = data.size;
-	data.kernel = new double[data.size*data.size];
+	data >> filt.size;
+	int n = filt.size;
+	filt.kernel = new double[filt.size*filt.size];
 
 	//read in weights until kernel is full
 	for (int r=0; r<n; r++) {
 		for (int c=0; c<n; c++) {
-			filt >> data.kernel[(r*n)+c];
+			data >> filt.kernel[contigIndex(r,c,n)];
 		}
 	}
 
-	//TODO make sure this works
-	NormFilter norm;
-	norm.size = n;
-	norm.kernel = new double[n*n]
-	//find max magnitude of raw kernel
+	//find max magnitude of positive and negative sums
 	int ind = 0;
-	double max = 0.0;
+	double posMag = 0.0;
+	double negMag = 0.0;
 	while (ind < n*n) {
-		int mag = abs(data.kernel[ind++]);
-		if (mag > max) {max = mag;}
+		double num = filt.kernel[ind++];
+		if (num > 0.0) { posSum += num; }
+		else { negSum -= num; }
 	}
-	norm.scalefactor = max;
-	//convert all kernel values to percent of scale factoir
-	ind = 0;
-	while (ind < n*n) {
-		norm.kernel[ind++] = percentOf(data.kernel[ind],max);
-	}
+	double max = (posMag>negMag)? posMag:negMag;
+	filt.scalefactor = max;
 	
-	//delete rawfilter and put normfilter in cache
-	discardRawFilt(data);
-	filtCache.push_back(norm);
+	filtCache.push_back(filt);
 	//select this filter
 	filtIndex = filtCache.size()-1;
 }
 
+/* makes a copy of image in imageCache[index] and adds it to the imageCache
+ * useful to support reverting changes at the cost of extra memory usage 
+ * if you don't like that, call readImage() again to get it from disk instead 
+ * returns last index of imageCache after copy is made */
+int cloneImage(int index) {
+	ImageRGBA copyImage;
+	ImageRGBA origImage = imageCache[index];
+	int h = origImage.spec.height;
+	int w = origImage.spec.width;
+
+	copyImage.spec = origImage.spec;
+	copyImage.pixels = new pxRGBA[h*w];
+	for (int i=0; i<h*w; i++) {
+		copyImage.pixels[i] = origImage.pixels[i];
+	}
+	imageCache.push_back(copyImage);
+	return imageCache.size()-1;
+}
+
+/* removes an image from the imageCache */
+int removeImage(int index) {
+	if (imageCache.size() > index) {
+		discardImage(imageCache[index]);
+		imageCache.erase(imageCache.begin()+index);
+	}
+	else {
+		return -1; //cannot remove from empty cache
+	}
+	return imageCache.size();
+}
+
+/* removes a filter from the filtCache */
+int removeFilt(int index) {
+	if (filtCache.size() > index) {
+		discardNormFilt(filtCache[index]);
+		filtCache.erase(filtCache.begin()+index);
+	}
+	else {
+		return -1; //cannot remove from empty cache
+	}
+	return filtCache.size();
+}
+
+
 /* apply convolution filter to current image
- * must be using 0~1 NormFilter or things will break */
-void convolve(NormFilter filt) {
-	//TODO
-	//flip the kernel horizontally and vertically
+ * this function currently uses zero padding for boundaries
+ * and clamps final values between 0 and MAX_VAL */
+void convolve(RawFilter filt) {
+	//flip the kernel horizontally and vertically before applying (read backwards)
+	int n = filt.size;
+	double* tempkern = new double[n*n]
+	for (int row=n; row>0; row--) {
+		for (int col=n; col>0; col--) {
+			tempkern[contigIndex(n-row,n-col,n);] = filt.kernel[contigIndex(row,col,n)];
+		}
+	}
+
+	ImageRGBA victim = imageCache[imageIndex];
+	int iheight = victim.spec.height;
+	int iwidth = victim.spec.width;
+	double* result = new pxRGBA[iheight*iwidth]; //this is not something i should do in-place
+	//per pixel...
+	for (int irow=0; irow<iheight; irow++) {
+		for (int icol=0; icol<iwidth; icol++) {
+			pxRGBA itarget = victim.image[contigIndex(irow,icol,iwidth)];
+			//per RGB channel...
+			double totalRed = 0.0;
+			double totalGreen = 0.0;
+			double totalBlue = 0.0;
+			//per filter data point... TODO check math rounding works
+			for (int frow=0; frow<n; frow++) {
+				for (int fcol=0; fcol<n; fcol++) {
+					//janky boundary check
+					int targetRow = irow+(frow-(n/2));
+					int targetCol = icol+(fcol-(n/2));
+					if (targetRow >= 0 && targetRow < iwidth &&
+						targetCol >= 0 && targetCol < iheight) {
+						double weight = filt.kernel[contigIndex(frow,fcol,n)];
+						totalRed += target.red * weight;
+						totalGreen += target.green * weight;
+						totalBlue += target.blue * weight;
+					}
+					//else just ignore it (psuedo zero padding)
+				}
+			}
+			//scale, clamp, and apply to new pixel
+			pxRGBA npx;
+			npx.red = (unsigned char)clampDouble(totalRed/filt.scale, 0, MAX_VAL);
+			npx.green = (unsigned char)clampDouble(totalGreen/filt.scale, 0, MAX_VAL);
+			npx.blue = (unsigned char)clampDouble(totalBlue/filt.scale, 0, MAX_VAL);
+			npx.alpha = victim.image[contigIndex(irow,icol,iwidth)]; //don't touch alpha
+		}
+	}
+
+	//copy result over victim.image
+	delete tempkern;
 }
 
 /** OPENGL FUNCTIONS **/
@@ -411,15 +498,16 @@ void handleKey(unsigned char key, int x, int y){
 			return;
 		case 'r':
 		case 'R':
-			reloadOriginal();
+			resetImage();
 			cout << "reverted to original image" << endl;
 			return;
 		case 'w':
 		case 'W':
-			cout << "enter output filename: ";
-			string wfn;
-			cin >> wfn;
-			writeImage(wfn);
+			if (outstr.empty()) {
+				cout << "enter output filename: ";
+				cin >> outstr;
+			}
+			writeImage(outstr);
 			return;
 		case 'q':		// q - quit
 		case 'Q':
@@ -458,13 +546,12 @@ void timer( int value )
 int main(int argc, char* argv[]){
 	//read arguments as filenames and attempt to read requested input files
 	if (argc >= 3) {
-		string Astr = string(argv[1]);
-		string Bstr = string(argv[2]);
+		string filtstr = string(argv[1]);
+		string instr = string(argv[2]);
 
-		//do the things
-		readImage(Astr);
-		readImage(Bstr);
-		compose(0,1);
+		//read from files
+		readFilter(filtstr);
+		readImage(instr);
 
 		//output if given 3rd filename (no default extension appending, sorry)
 		if (argc >= 4) {
