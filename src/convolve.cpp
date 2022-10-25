@@ -29,8 +29,8 @@ OIIO_NAMESPACE_USING
 //assumed maximum value of pixel data - don't touch it kiddo
 #define MAX_VAL 255
 //preprocess macros aka math shorthand
-#define percentOf(a,max) ((double)a/max)
-#define contigIndex(row,col,wid) ((row*wid)+col) //converts row & column into 1d array index
+#define percentOf(a,max) ((double)(a)/(max))
+#define contigIndex(row,col,wid) (((row)*(wid))+(col)) //converts row & column into 1d array index
 #define maximum(x,y,z) ((x) > (y)? ((x) > (z)? (x) : (z)) : ((y) > (z)? (y) : (z)))
 #define minimum(x,y,z) ((x) < (y)? ((x) < (z)? (x) : (z)) : ((y) < (z)? (y) : (z)))
 
@@ -78,15 +78,13 @@ static string outstr;
 //TODO move these to separate file as library?
 /** UTILITY FUNCTIONS **/
 /*	clean up memory of unneeded ImageRGBA
- *	don't forget to remove it from imageCache first! 
- *	this will not deallocate the ImageSpec i don't think */
+ *	note this will not deallocate the ImageSpec i don't think */
 void discardImage(ImageRGBA image) {
-	delete image.pixels;
+	delete[] image.pixels;
 }
-/*	clean up memory of unneeded RawFilter
- *	don't forget to remove it from filtCache first! */
-void discardRawFilt(RawFilter filt) {
-	delete filt.kernel;
+/*	clean up memory of unneeded RawFilter */
+void discardRawFilter(RawFilter filt) {
+	delete[] filt.kernel;
 }
 
 /* math functions i wasn't sure i could do as preprocessor macros */
@@ -320,7 +318,7 @@ void writeImage(string filename){
 	puts a new RawFilter in the filtCache vector if successful */
 void readFilter(string filename) {
 	ifstream data(filename);
-	if (!filt) {
+	if (!data) {
 		cerr << "could not open .filt file!" << endl;
 		return;
 	}
@@ -344,11 +342,11 @@ void readFilter(string filename) {
 	double negMag = 0.0;
 	while (ind < n*n) {
 		double num = filt.kernel[ind++];
-		if (num > 0.0) { posSum += num; }
-		else { negSum -= num; }
+		if (num > 0.0) { posMag += num; }
+		else { negMag -= num; }
 	}
 	double max = (posMag>negMag)? posMag:negMag;
-	filt.scalefactor = max;
+	filt.scale = max;
 	
 	filtCache.push_back(filt);
 	//select this filter
@@ -389,7 +387,7 @@ int removeImage(int index) {
 /* removes a filter from the filtCache */
 int removeFilt(int index) {
 	if (filtCache.size() > index) {
-		discardNormFilt(filtCache[index]);
+		discardRawFilter(filtCache[index]);
 		filtCache.erase(filtCache.begin()+index);
 	}
 	else {
@@ -402,29 +400,34 @@ int removeFilt(int index) {
 /* apply convolution filter to current image
  * this function currently uses zero padding for boundaries
  * and clamps final values between 0 and MAX_VAL */
+//TODO make sure the shift & darken is because of the subpar boundary condition and not an actual bug
 void convolve(RawFilter filt) {
 	//flip the kernel horizontally and vertically before applying (read backwards)
 	int n = filt.size;
-	double* tempkern = new double[n*n]
+	double** tempkern = new double*[n*n];
 	for (int row=n; row>0; row--) {
 		for (int col=n; col>0; col--) {
-			tempkern[contigIndex(n-row,n-col,n);] = filt.kernel[contigIndex(row,col,n)];
+			//weirdo double pointer as a last resort
+			tempkern[contigIndex((n-row),(n-col),n)] = (&filt.kernel[contigIndex(row,col,n)]);
+			//TODO it still messes up the values
 		}
 	}
 
 	ImageRGBA victim = imageCache[imageIndex];
 	int iheight = victim.spec.height;
 	int iwidth = victim.spec.width;
-	double* result = new pxRGBA[iheight*iwidth]; //this is not something i should do in-place
+	cout << "this image is " << iwidth << "x" << iheight << endl;
+	pxRGBA* result = new pxRGBA[iheight*iwidth]; //do not do this in-place
 	//per pixel...
 	for (int irow=0; irow<iheight; irow++) {
 		for (int icol=0; icol<iwidth; icol++) {
-			pxRGBA itarget = victim.image[contigIndex(irow,icol,iwidth)];
+			cout << "calculating for " << irow << "," << icol << endl;
+			pxRGBA itarget = (victim.pixels[contigIndex(irow,icol,iwidth)]);
 			//per RGB channel...
 			double totalRed = 0.0;
 			double totalGreen = 0.0;
 			double totalBlue = 0.0;
-			//per filter data point... TODO check math rounding works
+			//per filter data point...
 			for (int frow=0; frow<n; frow++) {
 				for (int fcol=0; fcol<n; fcol++) {
 					//janky boundary check
@@ -432,25 +435,39 @@ void convolve(RawFilter filt) {
 					int targetCol = icol+(fcol-(n/2));
 					if (targetRow >= 0 && targetRow < iwidth &&
 						targetCol >= 0 && targetCol < iheight) {
-						double weight = filt.kernel[contigIndex(frow,fcol,n)];
-						totalRed += target.red * weight;
-						totalGreen += target.green * weight;
-						totalBlue += target.blue * weight;
+						double weight = *(tempkern[contigIndex(frow,fcol,n)]);
+						pxRGBA ftarget = (victim.pixels[contigIndex((irow+frow),(icol+fcol),iwidth)]);
+						//cout << "from " << targetRow << "," << targetCol << ": ";
+						totalRed += ftarget.red * weight;
+						totalGreen += ftarget.green * weight;
+						totalBlue += ftarget.blue * weight;
+						cout << (int)ftarget.red << " " << (int)ftarget.green << " " << (int)ftarget.blue << ", " << weight << endl;
 					}
-					//else just ignore it (psuedo zero padding)
+					//else just ignore it, don't add anything (zero padding)
 				}
 			}
 			//scale, clamp, and apply to new pixel
-			pxRGBA npx;
-			npx.red = (unsigned char)clampDouble(totalRed/filt.scale, 0, MAX_VAL);
-			npx.green = (unsigned char)clampDouble(totalGreen/filt.scale, 0, MAX_VAL);
-			npx.blue = (unsigned char)clampDouble(totalBlue/filt.scale, 0, MAX_VAL);
-			npx.alpha = victim.image[contigIndex(irow,icol,iwidth)]; //don't touch alpha
+			pxRGBA* npx = &(result[contigIndex(irow,icol,iwidth)]);
+			cout << "totals: " << totalRed << " " << totalGreen << " " << totalBlue << ", scale " << filt.scale << endl;
+			npx->red = (unsigned char)clampDouble(totalRed/filt.scale, 0, MAX_VAL);
+			npx->green = (unsigned char)clampDouble(totalGreen/filt.scale, 0, MAX_VAL);
+			npx->blue = (unsigned char)clampDouble(totalBlue/filt.scale, 0, MAX_VAL);
+			npx->alpha = victim.pixels[contigIndex(irow,icol,iwidth)].alpha; //don't touch alpha
+			cout << "final value: " << (int)npx->red << " " << (int)npx->green << " " << (int)npx->blue << " " << (int)npx->alpha << endl;
 		}
 	}
 
 	//copy result over victim.image
-	delete tempkern;
+	for (int i=0; i<iheight; i++) {
+		for (int j=0; j<iwidth; j++) {
+			int index = contigIndex(i,j,iwidth);
+			victim.pixels[index].red = result[index].red;
+			victim.pixels[index].green = result[index].green;
+			victim.pixels[index].blue = result[index].blue;
+		}
+	}
+	delete[] tempkern;
+	delete[] result;
 }
 
 /** OPENGL FUNCTIONS **/
@@ -492,13 +509,24 @@ void refitWindow() {
 void handleKey(unsigned char key, int x, int y){
 	string fn;
 	switch(key){
+		case 'd':
+			imageIndex++;
+			if (imageIndex > imageCache.size()-1) {
+				imageIndex = 0;
+			}
+			cout << "showing image " << imageIndex+1 << " of " << imageCache.size() << endl;
+			return;
 		case 'c':
 		case 'C':
-			convolve();
+			convolve(filtCache[filtIndex]);
+			cout << "applied to image " << imageIndex+1 << " of " << imageCache.size() << endl;
 			return;
 		case 'r':
 		case 'R':
-			resetImage();
+			if (imageCache.size() > 1) {
+				removeImage(imageIndex);
+				imageIndex = cloneImage(0);
+			}
 			cout << "reverted to original image" << endl;
 			return;
 		case 'w':
@@ -555,12 +583,13 @@ int main(int argc, char* argv[]){
 
 		//output if given 3rd filename (no default extension appending, sorry)
 		if (argc >= 4) {
-			string outstr = string(argv[3]);
-			writeImage(outstr);
+			outstr = string(argv[3]);
 		}
+
+		imageIndex = cloneImage(0); //create copy for working on
 	}
 	else {
-		cerr << "usage: compose [foreground].png [background] (output)" << endl;
+		cerr << "usage: convolve [filter].filt [input].png (output)" << endl;
 		exit(1);
 	}
 
@@ -570,7 +599,7 @@ int main(int argc, char* argv[]){
 	// create the graphics window, giving width, height, and title text
 	glutInitDisplayMode(GLUT_SINGLE | GLUT_RGBA);
 	glutInitWindowSize(DEFAULT_WIDTH, DEFAULT_HEIGHT);
-	glutCreateWindow("compose Result");
+	glutCreateWindow("convolve");
 
 	//if there is an image already loaded, set the resolution to fit it
 	refitWindow();

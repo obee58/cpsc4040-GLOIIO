@@ -11,6 +11,8 @@ endif
 
 # I have spent an hour on fixing this makefile and make refuses to read a list one-by-one
 # just copy the lines and replace the filenames
+default: clean project4	
+
 project1: imgview
 project3: alphamask compose
 project4: convolve
