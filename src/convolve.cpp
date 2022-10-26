@@ -62,7 +62,7 @@ typedef struct convolve_filt_t {
 	double scale;
 	double* kernel;
 } RawFilter;
-
+//TODO reintroduce normalized filter to simplify calculations
 
 /** CONTROL & GLOBAL STATICS **/
 //list of read images for multi-image viewing mode
@@ -78,7 +78,7 @@ static string outstr;
 //TODO move these to separate file as library?
 /** UTILITY FUNCTIONS **/
 /*	clean up memory of unneeded ImageRGBA
- *	note this will not deallocate the ImageSpec i don't think */
+ *	note this will not deallocate the ImageSpec i don't think? */
 void discardImage(ImageRGBA image) {
 	delete[] image.pixels;
 }
@@ -402,62 +402,83 @@ int removeFilt(int index) {
  * and clamps final values between 0 and MAX_VAL */
 //TODO make sure the shift & darken is because of the subpar boundary condition and not an actual bug
 void convolve(RawFilter filt) {
+	/* REMEMBER THE PIXMAPS ARE VERTICALLY FLIPPED - PIXEL 0 IS AT BOTTOM LEFT */
 	//flip the kernel horizontally and vertically before applying (read backwards)
 	int n = filt.size;
-	double** tempkern = new double*[n*n];
-	for (int row=n; row>0; row--) {
-		for (int col=n; col>0; col--) {
-			//weirdo double pointer as a last resort
-			tempkern[contigIndex((n-row),(n-col),n)] = (&filt.kernel[contigIndex(row,col,n)]);
-			//TODO it still messes up the values
+	int nind = n-1; //IM STUPID AND SO ARE ORDINALS
+	double* tempkern = new double[n*n];
+	for (int row=0; row<n; row++) {
+		for (int col=0; col<n; col++) {
+			tempkern[contigIndex(row,col,n)] = filt.kernel[contigIndex(nind-row,nind-col,n)];
 		}
 	}
 
 	ImageRGBA victim = imageCache[imageIndex];
 	int iheight = victim.spec.height;
 	int iwidth = victim.spec.width;
-	cout << "this image is " << iwidth << "x" << iheight << endl;
+	int boundary = iheight*iwidth; //at this value, past the pixel array
+	//cout << "this image is " << iwidth << "x" << iheight << endl;
 	pxRGBA* result = new pxRGBA[iheight*iwidth]; //do not do this in-place
 	//per pixel...
 	for (int irow=0; irow<iheight; irow++) {
 		for (int icol=0; icol<iwidth; icol++) {
-			cout << "calculating for " << irow << "," << icol << endl;
-			pxRGBA itarget = (victim.pixels[contigIndex(irow,icol,iwidth)]);
+			int iindex = contigIndex(irow,icol,iwidth);
+			pxRGBA itarget = (victim.pixels[iindex]); //image index
+			//bool debugCond = (iindex > boundary-(n) || iindex < n || iindex%iwidth == 0);
+
 			//per RGB channel...
 			double totalRed = 0.0;
 			double totalGreen = 0.0;
 			double totalBlue = 0.0;
+			
 			//per filter data point...
 			for (int frow=0; frow<n; frow++) {
 				for (int fcol=0; fcol<n; fcol++) {
-					//janky boundary check
 					int targetRow = irow+(frow-(n/2));
 					int targetCol = icol+(fcol-(n/2));
-					if (targetRow >= 0 && targetRow < iwidth &&
-						targetCol >= 0 && targetCol < iheight) {
-						double weight = *(tempkern[contigIndex(frow,fcol,n)]);
-						pxRGBA ftarget = (victim.pixels[contigIndex((irow+frow),(icol+fcol),iwidth)]);
-						//cout << "from " << targetRow << "," << targetCol << ": ";
-						totalRed += ftarget.red * weight;
-						totalGreen += ftarget.green * weight;
-						totalBlue += ftarget.blue * weight;
-						cout << (int)ftarget.red << " " << (int)ftarget.green << " " << (int)ftarget.blue << ", " << weight << endl;
+					double weight = tempkern[contigIndex(frow,fcol,n)];
+					int tindex = contigIndex(targetRow,targetCol,iwidth); //target (filter) index
+					//boundary check
+					//targetCol checks are to prevent bleeding of edge of last row or beginning of next row
+					if (tindex > 0 && tindex < boundary
+						&& targetCol >= 0 && targetCol < iwidth) {
+						pxRGBA ftarget = (victim.pixels[tindex]);
+						totalRed += (double)(ftarget.red) * weight;
+						totalGreen += (double)(ftarget.green) * weight;
+						totalBlue += (double)(ftarget.blue) * weight;
+						//if (debugCond) {
+						//	cout << "from " << targetRow << "," << targetCol << " (" << tindex << ", offset " << frow-(n/2) << "," << fcol-(n/2) << "): ";
+						//	cout << (double)(ftarget.red) << " " << (double)ftarget.green << " " << (double)ftarget.blue << ", " << weight << endl;
+						//}
 					}
-					//else just ignore it, don't add anything (zero padding)
+					else {
+						//if OOB, pad with values of original pixel
+						totalRed += (double)(itarget.red) * weight;
+						totalGreen += (double)(itarget.green) * weight;
+						totalBlue += (double)(itarget.blue) * weight;
+						//if (debugCond) {
+						//	cout << "out of bounds! ";
+						//	cout << "from " << targetRow << "," << targetCol << "(offset " << frow-(n/2) << "," << fcol-(n/2) << "): ";
+						//	cout << (double)itarget.red << " " << (double)itarget.green << " " << (double)itarget.blue << ", " << weight << endl;
+						//}
+					}
 				}
 			}
 			//scale, clamp, and apply to new pixel
-			pxRGBA* npx = &(result[contigIndex(irow,icol,iwidth)]);
-			cout << "totals: " << totalRed << " " << totalGreen << " " << totalBlue << ", scale " << filt.scale << endl;
+			pxRGBA* npx = &(result[iindex]);
 			npx->red = (unsigned char)clampDouble(totalRed/filt.scale, 0, MAX_VAL);
 			npx->green = (unsigned char)clampDouble(totalGreen/filt.scale, 0, MAX_VAL);
 			npx->blue = (unsigned char)clampDouble(totalBlue/filt.scale, 0, MAX_VAL);
-			npx->alpha = victim.pixels[contigIndex(irow,icol,iwidth)].alpha; //don't touch alpha
-			cout << "final value: " << (int)npx->red << " " << (int)npx->green << " " << (int)npx->blue << " " << (int)npx->alpha << endl;
+			npx->alpha = victim.pixels[iindex].alpha; //don't touch alpha
+			//if (debugCond) {
+			//	cout << "pixel: " << irow << "," << icol << " (" << iindex << ")" << endl;
+			//	cout << "totals: " << totalRed << " " << totalGreen << " " << totalBlue << ", scale " << filt.scale << endl;
+			//	cout << "final value: " << (int)npx->red << " " << (int)npx->green << " " << (int)npx->blue << " " << (int)npx->alpha << endl;
+			//}
 		}
 	}
 
-	//copy result over victim.image
+	//copy result over victim.pixels
 	for (int i=0; i<iheight; i++) {
 		for (int j=0; j<iwidth; j++) {
 			int index = contigIndex(i,j,iwidth);
@@ -509,17 +530,18 @@ void refitWindow() {
 void handleKey(unsigned char key, int x, int y){
 	string fn;
 	switch(key){
-		case 'd':
+		//debug stuff sorry
+		/*case 'd':
 			imageIndex++;
 			if (imageIndex > imageCache.size()-1) {
 				imageIndex = 0;
 			}
 			cout << "showing image " << imageIndex+1 << " of " << imageCache.size() << endl;
-			return;
+			return;*/
 		case 'c':
 		case 'C':
 			convolve(filtCache[filtIndex]);
-			cout << "applied to image " << imageIndex+1 << " of " << imageCache.size() << endl;
+			//cout << "applied to image " << imageIndex+1 << " of " << imageCache.size() << endl;
 			return;
 		case 'r':
 		case 'R':
