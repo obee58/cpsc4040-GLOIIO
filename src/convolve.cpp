@@ -28,6 +28,37 @@ OIIO_NAMESPACE_USING;
 #define DEFAULT_HEIGHT 600
 //output filename if provided
 static string outstr;
+//memory of loaded files/data
+static vector<ImageRGBA> imageCache;
+static vector<RawFilter> filtCache;
+//current index in vector to draw/use/modify
+static int imageIndex = 0;
+static int filtIndex = 0;
+
+/** CONTROL FUNCTIONS **/
+/* removes an image from the imageCache */
+int removeImage(int index) {
+	if (imageCache.size() > index) {
+		discardImage(imageCache[index]);
+		imageCache.erase(imageCache.begin()+index);
+	}
+	else {
+		return -1; //cannot remove from empty cache
+	}
+	return imageCache.size();
+}
+
+/* removes a filter from the filtCache */
+int removeFilt(int index) {
+	if (filtCache.size() > index) {
+		discardRawFilter(filtCache[index]);
+		filtCache.erase(filtCache.begin()+index);
+	}
+	else {
+		return -1; //cannot remove from empty cache
+	}
+	return filtCache.size();
+}
 
 /** OPENGL FUNCTIONS **/
 /* main display callback: displays the image of current index from imageCache. 
@@ -78,14 +109,15 @@ void handleKey(unsigned char key, int x, int y){
 			return;*/
 		case 'c':
 		case 'C':
-			convolve(filtCache[filtIndex]);
+			convolve(filtCache[filtIndex], imageCache[imageIndex]);
 			//cout << "applied to image " << imageIndex+1 << " of " << imageCache.size() << endl;
 			return;
 		case 'r':
 		case 'R':
 			if (imageCache.size() > 1) {
 				removeImage(imageIndex);
-				imageIndex = cloneImage(0);
+				imageCache.push_back(cloneImage(imageCache[0]));
+				imageIndex = imageCache.size()-1;
 			}
 			cout << "reverted to original image" << endl;
 			return;
@@ -95,7 +127,7 @@ void handleKey(unsigned char key, int x, int y){
 				cout << "enter output filename: ";
 				cin >> outstr;
 			}
-			writeImage(outstr);
+			writeImage(outstr, imageCache[imageIndex]);
 			return;
 		case 'q':		// q - quit
 		case 'Q':
@@ -138,15 +170,16 @@ int main(int argc, char* argv[]){
 		string instr = string(argv[2]);
 
 		//read from files
-		readFilter(filtstr);
-		readImage(instr);
+		filtCache.push_back(readFilter(filtstr));
+		imageCache.push_back(readImage(instr));
 
 		//output if given 3rd filename (no default extension appending, sorry)
 		if (argc >= 4) {
 			outstr = string(argv[3]);
 		}
 
-		imageIndex = cloneImage(0); //create copy for working on
+		imageCache.push_back(cloneImage(imageCache[0])); //create copy for working on
+		imageIndex = imageCache.size()-1;
 	}
 	else {
 		cerr << "usage: convolve [filter].filt [input].png (output)" << endl;

@@ -5,6 +5,9 @@
 #include <fstream>
 #include <string>
 #include <cmath>
+#include <random>
+#include <algorithm>
+#include <exception>
 
 using namespace std;
 OIIO_NAMESPACE_USING;
@@ -57,12 +60,14 @@ flRGBA percentify(pxRGBA);
 pxRGBA premult(pxRGBA);
 pxHSV RGBtoHSV(pxRGB);
 pxHSV RGBAtoHSV(pxRGBA);
-void readImage(string);
-void writeImage(string);
-void readFilter(string);
-int cloneImage(int);
-int removeImage(int);
-int removeFilt(int);
-void convolve(RawFilter);
+ImageRGBA readImage(string);
+void writeImage(string, ImageRGBA);
+RawFilter readFilter(string);
+ImageRGBA cloneImage(ImageRGBA);
+void invert(ImageRGBA);
+void noisify(ImageRGBA, int, int);
+void chromaKey(ImageRGBA, pxHSV, double, double, double);
+void compose(ImageRGBA, ImageRGBA);
+void convolve(RawFilter, ImageRGBA);
 
 #endif

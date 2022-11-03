@@ -1,12 +1,5 @@
 #include "gloiioFuncs.h"
 
-//memory of loaded files/data
-vector<ImageRGBA> imageCache;
-vector<RawFilter> filtCache;
-//current index in vector to draw/use/modify
-static int imageIndex = 0;
-static int filtIndex = 0;
-
 /** UTILITY FUNCTIONS **/
 /*	clean up memory of unneeded ImageRGBA
  *	note this will not deallocate the ImageSpec i don't think? */
@@ -124,13 +117,14 @@ pxHSV RGBAtoHSV(pxRGBA rgba) {
 
 /** PROCESSING FUNCTIONS **/
 /*  reads in image from specified filename as RGBA 8bit pixmap
-	puts a new ImageRGBA in the imageCache vector if successful */
-void readImage(string filename) {
+	returns an ImageRGBA if successful
+	THROWS EXCEPTION ON IO FAIL - place in trycatch block if called outside of init */
+ImageRGBA readImage(string filename) {
 	std::unique_ptr<ImageInput> in = ImageInput::open(filename);
 	if (!in) {
 		std::cerr << "could not open input file! " << geterror();
 		//cancel routine
-		return;
+		throw runtime_error("image input fail");
 	}
 
 	//store spec and get metadata from it
@@ -150,7 +144,7 @@ void readImage(string filename) {
 	if(!in->read_image(TypeDesc::UINT8, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
 		cerr << "Could not read image from " << filename << ", error = " << geterror() << endl;
 		//cancel routine
-		return;
+		throw runtime_error("image input fail");
   	}
 	
 	//allocate data for converted pxRGBA version
@@ -190,25 +184,23 @@ void readImage(string filename) {
 
 	//close input
 	in->close();
-	//store struct in cache and switch to display this image
-	imageCache.push_back(image);
-	imageIndex = imageCache.size()-1;
+	return image;
 }
 
 /* writes currently dixplayed pixmap (as RGBA) to a file
 	(mostly the same as sample code) */
-void writeImage(string filename){
-	int xr = imageCache[imageIndex].spec.width;
-	int yr = imageCache[imageIndex].spec.height;
+void writeImage(string filename, ImageRGBA image){
+	int xr = image.spec.width;
+	int yr = image.spec.height;
 	int channels = 4;
 	//temporary 1d array to stick all the pxRGBA data into
 	//write_image does not like my structs >:(
 	unsigned char temp_px[xr*yr*channels];
 	for (int i=0; i<xr*yr; i++) {
-		temp_px[(4*i)] = imageCache[imageIndex].pixels[i].red;
-		temp_px[(4*i)+1] = imageCache[imageIndex].pixels[i].green;
-		temp_px[(4*i)+2] = imageCache[imageIndex].pixels[i].blue;
-		temp_px[(4*i)+3] = imageCache[imageIndex].pixels[i].alpha;
+		temp_px[(4*i)] = image.pixels[i].red;
+		temp_px[(4*i)+1] = image.pixels[i].green;
+		temp_px[(4*i)+2] = image.pixels[i].blue;
+		temp_px[(4*i)+3] = image.pixels[i].alpha;
 	}
 
 	// create the oiio file handler for the image
@@ -246,12 +238,13 @@ void writeImage(string filename){
 
 
 /*  reads in filter data from specified filename as RawFilter
-	puts a new RawFilter in the filtCache vector if successful */
-void readFilter(string filename) {
+	returns a RawFilter for the filtCache if successful 
+	THROWS EXCEPTION ON IO FAIL - place in trycatch block if called outside of init */
+RawFilter readFilter(string filename) {
 	ifstream data(filename);
 	if (!data) {
 		cerr << "could not open .filt file!" << endl;
-		return;
+		throw runtime_error("filter input fail");
 	}
 	
 	RawFilter filt;
@@ -279,18 +272,14 @@ void readFilter(string filename) {
 	double max = (posMag>negMag)? posMag:negMag;
 	filt.scale = max;
 	
-	filtCache.push_back(filt);
-	//select this filter
-	filtIndex = filtCache.size()-1;
+	return filt;
 }
 
-/* makes a copy of image in imageCache[index] and adds it to the imageCache
+/* makes a copy of an image
  * useful to support reverting changes at the cost of extra memory usage 
- * if you don't like that, call readImage() again to get it from disk instead 
- * returns last index of imageCache after copy is made */
-int cloneImage(int index) {
+ * if you don't like that, call readImage() again to get it from disk instead */
+ImageRGBA cloneImage(ImageRGBA origImage) {
 	ImageRGBA copyImage;
-	ImageRGBA origImage = imageCache[index];
 	int h = origImage.spec.height;
 	int w = origImage.spec.width;
 
@@ -299,40 +288,98 @@ int cloneImage(int index) {
 	for (int i=0; i<h*w; i++) {
 		copyImage.pixels[i] = origImage.pixels[i];
 	}
-	imageCache.push_back(copyImage);
-	return imageCache.size()-1;
+	return copyImage;
 }
 
-/* removes an image from the imageCache */
-int removeImage(int index) {
-	if (imageCache.size() > index) {
-		discardImage(imageCache[index]);
-		imageCache.erase(imageCache.begin()+index);
+/** IMAGE MODIFICATION FUNCTIONS **/
+/* inverts all colors of the currently loaded image
+	ignores alpha channel */
+void invert(ImageRGBA image) {
+	//wow!! this is a lot easier now
+	int xr = image.spec.width;
+	int yr = image.spec.height;
+	for (int i=0; i<xr*yr; i++) {
+		image.pixels[i].red = MAX_VAL - image.pixels[i].red;
+		image.pixels[i].green = MAX_VAL - image.pixels[i].green;
+		image.pixels[i].blue = MAX_VAL - image.pixels[i].blue;
 	}
-	else {
-		return -1; //cannot remove from empty cache
-	}
-	return imageCache.size();
 }
 
-/* removes a filter from the filtCache */
-int removeFilt(int index) {
-	if (filtCache.size() > index) {
-		discardRawFilter(filtCache[index]);
-		filtCache.erase(filtCache.begin()+index);
+/* randomly replaces pixels with black
+	chance defined by 1/noiseDenom */
+void noisify(ImageRGBA image, int noiseDenom, int seed) {
+	default_random_engine gen(time(NULL)+seed);
+	uniform_int_distribution<int> dist(1,noiseDenom);
+	auto rando = bind(dist,gen);
+	
+	int xr = image.spec.width;
+	int yr = image.spec.height;
+	for (int i=0; i<xr*yr; i++) {
+		if (rando() == 1) {
+			//set the color values to 0 and alpha to max
+			image.pixels[i].red = 0;
+			image.pixels[i].green = 0;
+			image.pixels[i].blue = 0;
+			image.pixels[i].alpha = MAX_VAL;
+		}
 	}
-	else {
-		return -1; //cannot remove from empty cache
-	}
-	return filtCache.size();
 }
 
+/* chroma-key image to create alphamask using HSV differences (overwrites)
+	"fuzz" arguments determine max difference for each value to keep */
+void chromaKey(ImageRGBA image, pxHSV target, double huefuzz, double satfuzz, double valfuzz) {
+	int xr = image.spec.width;
+	int yr = image.spec.height;
+	for (int i=0; i<xr*yr; i++) {
+		pxHSV comp = RGBAtoHSV(image.pixels[i]);
+		//cut out based on absolute distance from target values
+		//if all three are in range, hide it!
+		double huediff = fabs(comp.hue - target.hue);
+		double satdiff = fabs(comp.saturation - target.saturation);
+		double valdiff = fabs(comp.value - target.value);
+		if (huediff < huefuzz && satdiff < satfuzz && valdiff < valfuzz) {
+			//some smoothing function for pixels way less close
+			double maskalpha = (0.2*(huediff/huefuzz) + 0.4*(satdiff/satfuzz) + 0.4*(valdiff/valfuzz)) - 0.2;
+			//clamp to 0.0~1.0; if the result is like 0.012 don't bother with it
+			maskalpha = (maskalpha < 0.02? 0.0 : maskalpha);
+			maskalpha = (maskalpha > 1.0? 1.0 : maskalpha);
+			
+			//cout << "masking pixel: " << comp.hue << " " << comp.saturation << " " << comp.value << " to alpha value " << maskalpha << endl;
+			image.pixels[i].alpha = (unsigned char)255*maskalpha;
+		}
+	}
+}
 
-/* apply convolution filter to current image
+/* slap image A over image B, compositing them into just image B (overwrites)
+	both indices must be in bounds, A must be same size or smaller than B */
+/** IN MEMORIAM OF int Bindex, 2022-2022 */
+void compose(ImageRGBA imgA, ImageRGBA imgB) {
+	ImageRGBA* A = &imgA;
+	ImageRGBA* B = &imgB;
+	ImageSpec* specA = &(A->spec);
+	ImageSpec* specB = &(B->spec);
+	if (specA->height > specB->height || specA->width > specB->width) {
+		cerr << "foreground is too big to fit on background!" << endl;
+		return;
+	}
+	for (int i=0; i<specB->height*specB->width; i++) {
+		//make 0~1 value copies of pixels & their premultiplied versions
+		flRGBA pxpctA = percentify(A->pixels[i]);
+		flRGBA pxpctB = percentify(B->pixels[i]);
+		flRGBA prmpctA = percentify(premult(A->pixels[i]));
+		flRGBA prmpctB = percentify(premult(B->pixels[i]));
+		//apply over to each channel, overwriting background B
+		B->pixels[i].red = 255*(prmpctA.red + (1.0-pxpctA.alpha)*prmpctB.red);
+		B->pixels[i].green = 255*(prmpctA.green + (1.0-pxpctA.alpha)*prmpctB.green);
+		B->pixels[i].blue = 255*(prmpctA.blue + (1.0-pxpctA.alpha)*prmpctB.blue);
+		B->pixels[i].alpha = 255*(pxpctA.alpha + (1.0-pxpctA.alpha)*pxpctB.alpha);
+	}
+}
+
+/* apply convolution filter to current image, overwriting it when done
  * this function currently uses zero padding for boundaries
  * and clamps final values between 0 and MAX_VAL */
-//TODO make sure the shift & darken is because of the subpar boundary condition and not an actual bug
-void convolve(RawFilter filt) {
+void convolve(RawFilter filt, ImageRGBA victim) {
 	/* REMEMBER THE PIXMAPS ARE VERTICALLY FLIPPED - PIXEL 0 IS AT BOTTOM LEFT */
 	//flip the kernel horizontally and vertically before applying (read backwards)
 	int n = filt.size;
@@ -344,12 +391,11 @@ void convolve(RawFilter filt) {
 		}
 	}
 
-	ImageRGBA victim = imageCache[imageIndex];
 	int iheight = victim.spec.height;
 	int iwidth = victim.spec.width;
 	int boundary = iheight*iwidth; //at this value, past the pixel array
 	//cout << "this image is " << iwidth << "x" << iheight << endl;
-	pxRGBA* result = new pxRGBA[iheight*iwidth]; //do not do this in-place
+	pxRGBA* result = new pxRGBA[iheight*iwidth]; //let's not do this entirely in-place
 	//per pixel...
 	for (int irow=0; irow<iheight; irow++) {
 		for (int icol=0; icol<iwidth; icol++) {
