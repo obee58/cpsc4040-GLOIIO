@@ -1,10 +1,8 @@
-# cpsc4040-GLOIIO project4 (v0.4)
+# cpsc4040-GLOIIO (v1.0.-1 "librarified")
 #### OpenGL/GLUT Program Suite to read, display, modify, and write images using the OpenImageIO API
-Dr. Karamouzas "Convolution"
-
 by Owen Book (obook@clemson.edu)
 
-*CPSC 4040 | Fall 2022*
+*CPSC 4040 | Dr. Karamouzas | Fall 2022*
 
 ### Compilation
 Makefile is included. You can run these commands:
@@ -32,8 +30,6 @@ W: write current image to file (prompt)
 I: invert colors of current image
 
 N: randomly add black noise to current image
-
-*P: display the first set of bytes of the image data in hex*  
 
 Q or ESC: quit program
 
