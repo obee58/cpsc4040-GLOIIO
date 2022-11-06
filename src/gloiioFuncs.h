@@ -36,12 +36,22 @@ typedef struct pixel_hsv_t {
 typedef struct floating_rgba_t {
 	double red, green, blue, alpha;
 } flRGBA;
+//struct that holds RGB 3-tuple of floats (NOT doubles, any>0)
+typedef struct floating_rgb_t {
+	float red, green, blue;
+} flRGB;
 
 //struct to tie image spec and pixels together
 typedef struct image_rgba_uint8_t {
 	ImageSpec spec;
 	pxRGBA* pixels;
 } ImageRGBA;
+//similar struct for HDR or other float-based images
+typedef struct image_rgb_float_t {
+	ImageSpec spec;
+	flRGB* pixels;
+} ImageHDR;
+
 //struct representing .filt with calculated scale factor
 typedef struct convolve_filt_t {
 	int size; //NxN
@@ -50,9 +60,11 @@ typedef struct convolve_filt_t {
 } RawFilter;
 
 void discardImage(ImageRGBA);
+void discardHDR(ImageHDR);
 void discardRawFilter(RawFilter);
 int clampInt(int,int,int);
 double clampDouble(double,double,double);
+double lumaYUV(flRGB);
 pxRGB linkRGB(unsigned char,unsigned char,unsigned char);
 pxRGBA linkRGBA(unsigned char,unsigned char,unsigned char,unsigned char);
 pxHSV linkHSV(double,double,double);
@@ -60,14 +72,20 @@ flRGBA percentify(pxRGBA);
 pxRGBA premult(pxRGBA);
 pxHSV RGBtoHSV(pxRGB);
 pxHSV RGBAtoHSV(pxRGBA);
+ImageRGBA lowRange(ImageHDR);
 ImageRGBA readImage(string);
+ImageHDR readHDR(string);
 void writeImage(string, ImageRGBA);
 RawFilter readFilter(string);
 ImageRGBA cloneImage(ImageRGBA);
+ImageHDR cloneHDR(ImageHDR);
 void invert(ImageRGBA);
 void noisify(ImageRGBA, int, int);
 void chromaKey(ImageRGBA, pxHSV, double, double, double);
 void compose(ImageRGBA, ImageRGBA);
 void convolve(RawFilter, ImageRGBA);
+void tonemap(ImageHDR, double);
+void normalize(ImageHDR);
+void histoEqualize(ImageHDR);
 
 #endif

@@ -6,6 +6,10 @@
 void discardImage(ImageRGBA image) {
 	delete[] image.pixels;
 }
+/*	clean up memory of unneeded ImageHDR */
+void discardHDR(ImageHDR image) {
+	delete[] image.pixels;
+}
 /*	clean up memory of unneeded RawFilter */
 void discardRawFilter(RawFilter filt) {
 	delete[] filt.kernel;
@@ -21,6 +25,16 @@ double clampDouble(double x, double min, double max) {
 	if (x < min) { return min; }
 	if (x > max) { return max; }
 	return x;
+}
+
+/* calculates HDR luminance using Y'UV space function */
+double lumaYUV(flRGB px) {
+	return (double)((px.red*0.299) + (px.green*0.587) + (px.blue*0.114));
+}
+
+/* converts an HDR image to an RGBA image for output as .png, .jpg, etc. */
+ImageRGBA lowRange(ImageHDR image) {
+	//TODO
 }
 
 /* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
@@ -176,8 +190,78 @@ ImageRGBA readImage(string filename) {
 				image.pixels[i].green = temp_px[(4*i)+1];
 				image.pixels[i].blue = temp_px[(4*i)+2];
 				image.pixels[i].alpha = temp_px[(4*i)+3];
+				break;	
+			default: //something weird, throw exception
+				throw runtime_error("weird number of channels");
 				break;
-			default: //something weird, just do nothing
+		}
+	}
+
+	//close input
+	in->close();
+	return image;
+}
+
+//TODO test this weird thing
+/*  reads in image from specified filename as float RGB pixmap
+	returns an ImageHDR if successful
+	THROWS EXCEPTION ON IO FAIL - place in trycatch block if called outside of init */
+ImageHDR readHDR(string filename) {
+	std::unique_ptr<ImageInput> in = ImageInput::open(filename);
+	if (!in) {
+		std::cerr << "could not open input file! " << geterror();
+		//cancel routine
+		throw runtime_error("image input fail");
+	}
+
+	//store spec and get metadata from it
+	ImageHDR image;
+	image.spec = in->spec();
+	int xr = image.spec.width;
+	int yr = image.spec.height;
+	int channels = image.spec.nchannels;
+
+	//declare temp memory to read raw image data
+	float temp_px[xr*yr*channels];
+
+	// read the image into the temp_px from the input file, flipping it upside down using negative y-stride,
+	// since OpenGL pixmaps have the bottom scanline first, and 
+	// oiio expects the top scanline first in the image file.
+	int scanlinesize = xr * channels * sizeof(unsigned char);
+	if(!in->read_image(TypeDesc::FLOAT, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
+		cerr << "Could not read image from " << filename << ", error = " << geterror() << endl;
+		//cancel routine
+		throw runtime_error("image input fail");
+  	}
+	
+	//allocate data for converted flRGB version
+	image.pixels = new flRGB[xr*yr];
+	//convert and store raw image data as flRGBs
+	for (int i=0; i<yr*xr; i++) {
+		switch(channels) {
+			//this could be more cleanly programmed but the less convoluted the better
+			case 1: //grayscale
+				image.pixels[i].red = temp_px[i];
+				image.pixels[i].green = temp_px[i];
+				image.pixels[i].blue = temp_px[i];
+				break;
+			case 2: //weird grayscale with alpha (just covering my ass here)
+				image.pixels[i].red = temp_px[2*i];
+				image.pixels[i].green = temp_px[2*i];
+				image.pixels[i].blue = temp_px[2*i];
+				break;
+			case 3: //RGB
+				image.pixels[i].red = temp_px[(3*i)];
+				image.pixels[i].green = temp_px[(3*i)+1];
+				image.pixels[i].blue = temp_px[(3*i)+2];
+				break;
+			case 4: //RGBA
+				image.pixels[i].red = temp_px[(4*i)];
+				image.pixels[i].green = temp_px[(4*i)+1];
+				image.pixels[i].blue = temp_px[(4*i)+2];
+				break;
+			default: //something weird, throw exception
+				throw runtime_error("weird number of channels");
 				break;
 		}
 	}
@@ -285,6 +369,20 @@ ImageRGBA cloneImage(ImageRGBA origImage) {
 
 	copyImage.spec = origImage.spec;
 	copyImage.pixels = new pxRGBA[h*w];
+	for (int i=0; i<h*w; i++) {
+		copyImage.pixels[i] = origImage.pixels[i];
+	}
+	return copyImage;
+}
+
+/* same thing but for ImageHDR (really wish i could make these generic) */
+ImageHDR cloneHDR(ImageHDR origImage) {
+	ImageHDR copyImage;
+	int h = origImage.spec.height;
+	int w = origImage.spec.width;
+
+	copyImage.spec = origImage.spec;
+	copyImage.pixels = new flRGB[h*w];
 	for (int i=0; i<h*w; i++) {
 		copyImage.pixels[i] = origImage.pixels[i];
 	}
@@ -466,4 +564,17 @@ void convolve(RawFilter filt, ImageRGBA victim) {
 	}
 	delete[] tempkern;
 	delete[] result;
+}
+
+void tonemap(ImageHDR image, double gamma) {
+	//TODO...
+}
+
+//RGBA versions of these maybe sometime
+void normalize(ImageHDR image) {
+	//TODO low priority
+}
+
+void histoEqualize(ImageHDR image) {
+	//TODO low priority
 }
