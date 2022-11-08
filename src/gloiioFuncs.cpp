@@ -38,6 +38,13 @@ ImageRGBA lowRange(ImageHDR image) {
 }
 
 /* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
+flRGB linkflRGB(float r, float g, float b) {
+	flRGB px;
+	px.red = r;
+	px.green = g;
+	px.blue = b;
+	return px;
+}
 pxRGB linkRGB(unsigned char r, unsigned char g, unsigned char b) {
 	pxRGB px;
 	px.red = r;
@@ -222,13 +229,10 @@ ImageHDR readHDR(string filename) {
 	int channels = image.spec.nchannels;
 
 	//declare temp memory to read raw image data
-	float temp_px[xr*yr*channels];
+	vector<float> temp_px(xr*yr*channels);
 
-	// read the image into the temp_px from the input file, flipping it upside down using negative y-stride,
-	// since OpenGL pixmaps have the bottom scanline first, and 
-	// oiio expects the top scanline first in the image file.
-	int scanlinesize = xr * channels * sizeof(unsigned char);
-	if(!in->read_image(TypeDesc::FLOAT, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
+	// read the image into the temp_px from the input file
+	if(!in->read_image(TypeDesc::FLOAT, &temp_px[0])){
 		cerr << "Could not read image from " << filename << ", error = " << geterror() << endl;
 		//cancel routine
 		throw runtime_error("image input fail");
@@ -264,6 +268,18 @@ ImageHDR readHDR(string filename) {
 				throw runtime_error("weird number of channels");
 				break;
 		}
+	}
+
+	//flip data vertically (slow..)
+	for (int row=0; row<(yr/2); row++) {
+    	int antirow = (yr-1)-row;
+    	for (int col=0; col<xr; col++) {
+			int topInd = contigIndex(row,col,xr);
+			int botInd = contigIndex(antirow,col,xr);
+			flRGB temp = image.pixels[topInd];
+			image.pixels[topInd] = image.pixels[botInd];
+			image.pixels[botInd] = temp;
+    	}
 	}
 
 	//close input
@@ -566,8 +582,44 @@ void convolve(RawFilter filt, ImageRGBA victim) {
 	delete[] result;
 }
 
-void tonemap(ImageHDR image, double gamma) {
-	//TODO...
+/* apply global tonemapping to HDR image
+ * if gamma >= 1.0, uses basic Lw/(Lw+1) function
+ * if gamma < 1.0, compresses luminance using gamma to rescale in log domain(?) 
+ * if gcorrect = true, also divides results by 2.2 (common display gamma correction) */
+void tonemap(ImageHDR image, double gamma, bool gcorrect) {
+	//TODO make gamma calculation not use pow() like it says in the document
+	int xr = image.spec.width;
+	int yr = image.spec.height;
+	double* lumaW = new double[xr*yr];
+
+	//compute luminance data Lw
+	for (int i=0; i<xr*yr; i++) {
+		lumaW[i] = lumaYUV(image.pixels[i]);
+	}
+
+	double* lumaD = new double[xr*yr];
+	//compute display luminance per pixel Ld
+	for (int i=0; i<xr*yr; i++) {
+		//if gamma provided (not >= 1), scale in log domain instead
+		if (gamma < 1.0) {
+			lumaD[i] = exp(log(lumaW[i])*gamma);
+		}
+		else {
+			lumaD[i] = lumaW[i]/(lumaW[i]+1.0);
+		}
+	}
+
+	//scale the channels by Ld/Lw
+	for (int i=0; i<xr*yr; i++) {
+		double scale = lumaD[i]/lumaW[i];
+		if (gcorrect) { scale /= 2.2; }
+		image.pixels[i].red *= scale;
+		image.pixels[i].green *= scale;
+		image.pixels[i].blue *= scale;
+	}
+
+	delete[] lumaW;
+	delete[] lumaD;
 }
 
 //RGBA versions of these maybe sometime

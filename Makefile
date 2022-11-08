@@ -9,15 +9,13 @@ else
   endif
 endif
 
-# I have spent an hour on fixing this makefile and make refuses to read a list one-by-one
-# just copy the lines and replace the filenames
-default: recompile
+default: clean tonemap
 
 project1: imgview
 project3: alphamask compose
 project4: convolve
-all: imgview alphamask compose convolve
-
+project5: tonemap
+all: imgview alphamask compose convolve tonemap
 recompile: clean all
 
 imgview:
@@ -28,6 +26,8 @@ compose:
 	${CXX} ${CPPFLAGS} -o compose src/compose.cpp src/gloiioFuncs.cpp ${LD}
 convolve:
 	${CXX} ${CPPFLAGS} -o convolve src/convolve.cpp src/gloiioFuncs.cpp ${LD}
+tonemap:
+	${CXX} ${CPPFLAGS} -o tonemap src/tonemap.cpp src/gloiioFuncs.cpp ${LD}
 
 clean:
-	rm -f core.* *.o *~ imgview alphamask compose convolve
+	rm -f core.* *.o *~ imgview alphamask compose convolve tonemap

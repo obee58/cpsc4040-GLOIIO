@@ -1,13 +1,15 @@
-//	tonemap: OpenGL & OIIO program to apply color/gamma corrections & tone mapping to HDR images
+//	tonemap: experimental OpenGL & OIIO program to apply color/gamma corrections & tone mapping to HDR images for digital display
 //	Only supports HDR and EXR images! Do not try to input png, jpg, etc.
 //
 //	CLI usage: tonemap [input].[hdr/exr] (output)
 //	Currently only supports simple tonemapping function.
 //	
 //	Window controls: (using specific letters is getting complicated, geez)
-//	left/right arrows - switch between original or working copy (similar behavior to imgview)
-//	b - create basic tonemapped version of HDR image
-//	g - tonemap using gamma correction (prompts for gamma value)
+//	left/right arrows - switch view between original or working copy (similar behavior to imgview)
+//		note: using any other function will automatically switch back to the working copy
+//	c - toggle 1/2.2 gamma correction; enabled by default
+//	b - create basic tonemapped version of HDR image (no gamma compression)
+//	g - tonemap using gamma compression (prompts for gamma value)
 //	r - revert working copy to the original and start over
 //	(tentative) n - apply image normalization
 //	(tentative) h - apply histogram equalization
@@ -38,8 +40,10 @@ OIIO_NAMESPACE_USING;
 #define DEFAULT_HEIGHT 600
 //output filename
 static string outstr;
+//toggle whether or not to use 1/2.2 gamma correction when tonemapping
+static bool useCorrection = true;
 //memory of loaded files/data
-static vector<ImageFloat> imageCache;
+static vector<ImageHDR> imageCache;
 //current index in vector to draw/use/modify
 static int imageIndex = 0;
 
@@ -60,20 +64,19 @@ int removeImage(int index) {
 void revertOriginal(bool inform) {
 	if (imageCache.size() > 1) {
 		removeImage(imageIndex);
-		imageCache.push_back(cloneImage(imageCache[0]));
+		imageCache.push_back(cloneHDR(imageCache[0]));
 		imageIndex = imageCache.size()-1;
 	}
-	if (inform) { cout << "reverted to original image" << endl; }
+	if (inform) { cout << "reverted to original" << endl; }
 	return;
 }
 /* avoid modifying original in cache 
- * returns true if this check was necessary */
-bool preserveOriginal(bool revert, bool inform) {
-	if (imageIndex = 0) {
+ * returns true if this check was necessary 
+ * bool = whether or not to to warn user */
+bool preserveOriginal(bool inform) {
+	if (imageIndex == 0) {
 		imageIndex = 1;
-		if (revert) {
-			revertOriginal(inform);
-		}
+		if (inform) { cout << "showing working copy" << endl; }
 		return true;
 	}
 	return false;
@@ -87,21 +90,24 @@ void draw(){
 	glClearColor(0,0,0,1);
 	glClear(GL_COLOR_BUFFER_BIT);
 	if (imageCache.size() > 0) {
-		//display transparent images properly via blending (can probably just leave this in?)
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glEnable(GL_BLEND);
 		//get image spec & current window size
 		ImageSpec* spec = &imageCache[imageIndex].spec;
 		glPixelZoom(1.0,1.0);
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1); //Parrot Fixer 2000
 		glRasterPos2i(0,0); //draw from bottom left
 		//draw float image
-		//TODO no alpha? :raised_eyebrow:
 		glDrawPixels(spec->width,spec->height,GL_RGB,GL_FLOAT,&imageCache[imageIndex].pixels[0]);
-		glDisable(GL_BLEND);
 	}
 	//flush to viewport
 	glFlush();
+}
+
+/* resets the window size to fit the current image exactly at 100% pixelzoom */
+void refitWindow() {
+	if (imageCache.size() > 0) {
+		ImageSpec* spec = &imageCache[imageIndex].spec;
+		glutReshapeWindow(spec->width, spec->height);
+	}
 }
 
 /*
@@ -111,43 +117,57 @@ void draw(){
 void handleKey(unsigned char key, int x, int y){
 	string fn;
 	switch(key){
-		//TODO implement special keys
-		//TODO should it revert when user is looking at original?
+		case 'c':
+		case 'C':
+			useCorrection = !useCorrection;
+			if (useCorrection) {
+				cout << "gamma correction enabled" << endl;
+			}
+			else {
+				cout << "gamma correction disabled" << endl;
+			}
+			return;
 		case 'b':
 		case 'B':
-			preserveOriginal(false,false);
-			tonemap(imageCache[imageIndex], 2.2);
+			preserveOriginal(true);
+			tonemap(imageCache[imageIndex], 1.0, useCorrection);
 			return;
 		case 'g':
 		case 'G':
-			preserveOriginal(false,false);
-			cout << "enter gamma value: " << endl;
+			preserveOriginal(true);
+			cout << "enter gamma value: ";
 			double gamma;
 			cin >> gamma;
-			tonemap(imageCache[imageIndex]. gamma);
+			if (gamma > 0.0 && gamma < 1.0) {
+				tonemap(imageCache[imageIndex], gamma, useCorrection);
+			}
+			else {
+				cout << "gamma must be between 0 and 1 (aborted)" << endl;
+			}
 			return;
 		case 'r':
 		case 'R':
+			preserveOriginal(true);
 			revertOriginal(true);
 			return;
 		case 'n':
 		case 'N':
-			preserveOriginal(false,false);
+			preserveOriginal(true);
 			//TODO excredit: normalize (core op)
 			return;
 		case 'h':
 		case 'H':
-			preserveOriginal(false,false);
+			preserveOriginal(true);
 			//TODO excredit: histogram eq (core op)
 			return;
 		case 'w':
 		case 'W':
-			preserveOriginal(false,false); //assume user wants to write modified image
+			preserveOriginal(true); //assume user wants to write modified image
 			if (outstr.empty() || glutGetModifiers() == GLUT_ACTIVE_SHIFT) {
 				cout << "enter output filename: ";
 				cin >> outstr;
 			}
-			writeImage(outstr, imageCache[imageIndex]);
+			writeImage(outstr, lowRange(imageCache[imageIndex]));
 			return;
 		case 'q':		// q - quit
 		case 'Q':
@@ -155,6 +175,26 @@ void handleKey(unsigned char key, int x, int y){
 			exit(0);
 		default:		// not a valid key -- just ignore it
 			return;
+	}
+}
+
+/* handles arrow keys & fn keys */
+void specialKey(int key, int x, int y) {
+	switch(key) {
+		case GLUT_KEY_LEFT:
+			if (imageIndex > 0) {
+				imageIndex--;
+				cout << "showing original" << endl;
+			}
+			break;
+		case GLUT_KEY_RIGHT:
+			if (imageIndex < imageCache.size()-1 && imageCache.size() > 0) {
+				imageIndex++;
+				cout << "showing working copy" << endl;
+			}
+			break;
+		default:
+			return; //ignore other keys
 	}
 }
 
@@ -189,14 +229,14 @@ int main(int argc, char* argv[]){
 		string instr = string(argv[1]);
 
 		//read from files
-		imageCache.push_back(readImage(instr));
+		imageCache.push_back(readHDR(instr));
 
 		//output if given 2nd filename (no default extension appending, sorry)
 		if (argc >= 3) {
 			outstr = string(argv[2]);
 		}
 
-		imageCache.push_back(cloneImage(imageCache[0])); //create copy for working on
+		imageCache.push_back(cloneHDR(imageCache[0])); //create copy for working on
 		imageIndex = imageCache.size()-1;
 	}
 	else {
@@ -219,6 +259,7 @@ int main(int argc, char* argv[]){
 	// an event
 	glutDisplayFunc(draw);	  // display callback
 	glutKeyboardFunc(handleKey);	  // keyboard callback
+	glutSpecialFunc(specialKey);
 	glutReshapeFunc(handleReshape); // window resize callback
 	glutTimerFunc(0, timer, 0); //timer func to force redraws
 

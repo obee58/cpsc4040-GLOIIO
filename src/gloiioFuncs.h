@@ -65,6 +65,7 @@ void discardRawFilter(RawFilter);
 int clampInt(int,int,int);
 double clampDouble(double,double,double);
 double lumaYUV(flRGB);
+flRGB linkflRGB(float,float,float);
 pxRGB linkRGB(unsigned char,unsigned char,unsigned char);
 pxRGBA linkRGBA(unsigned char,unsigned char,unsigned char,unsigned char);
 pxHSV linkHSV(double,double,double);
@@ -84,7 +85,7 @@ void noisify(ImageRGBA, int, int);
 void chromaKey(ImageRGBA, pxHSV, double, double, double);
 void compose(ImageRGBA, ImageRGBA);
 void convolve(RawFilter, ImageRGBA);
-void tonemap(ImageHDR, double);
+void tonemap(ImageHDR, double, bool);
 void normalize(ImageHDR);
 void histoEqualize(ImageHDR);
 
