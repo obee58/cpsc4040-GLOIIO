@@ -32,11 +32,6 @@ double lumaYUV(flRGB px) {
 	return (double)((px.red*0.299) + (px.green*0.587) + (px.blue*0.114));
 }
 
-/* converts an HDR image to an RGBA image for output as .png, .jpg, etc. */
-ImageRGBA lowRange(ImageHDR image) {
-	//TODO
-}
-
 /* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
 flRGB linkflRGB(float r, float g, float b) {
 	flRGB px;
@@ -324,6 +319,76 @@ void writeImage(string filename, ImageRGBA image){
 	// unsigned chars. flip using stride to undo same effort in readImage
 	int scanlinesize = xr * channels * sizeof(unsigned char);
 	if(!outfile->write_image(TypeDesc::UINT8, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
+		cerr << "could not write to file! " << geterror() << endl;
+		return;
+	}
+	else cout << "successfully written image to " << filename << endl;
+
+	// close the image file after the image is written
+	if(!outfile->close()){
+		cerr << "could not close output file! " << geterror() << endl;
+		return;
+	}
+}
+
+/* modified writeImage function that uses OIIO to
+ * automatically convert ImageHDR to LDR .png file */
+void writeHDR(string filename, ImageHDR image){
+	// create the oiio file handler for the image
+	std::unique_ptr<ImageOutput> outfile = ImageOutput::create(filename);
+	if(!outfile){
+		cerr << "could not create output file! " << geterror() << endl;
+		//cancel routine
+		return;
+	}
+
+	cout << "readying" << endl;
+	//start readying and manipulating output copy
+	int xr = image.spec.width;
+	int yr = image.spec.height;
+	ImageHDR outcopy;
+	outcopy.spec = image.spec;
+	//outcopy.pixels = new flRGB[xr*yr];
+	
+	cout << "flipping" << endl;
+	//UNflip data vertically and transfer to copy
+	for (int row=0; row<(yr/2); row++) {
+    	int antirow = (yr-1)-row;
+    	for (int col=0; col<xr; col++) {
+			int topInd = contigIndex(row,col,xr);
+			int botInd = contigIndex(antirow,col,xr);
+			outcopy.pixels[topInd] = image.pixels[botInd];
+			outcopy.pixels[botInd] = image.pixels[topInd];
+    	}
+	}
+
+	cout << "unstructing" << endl;
+	//temporary 1d array to stick all the flRGB data into
+	vector<float> temp_px(xr*yr*4);
+	cout << "allocated" << endl;
+	for (int i=0; i<xr*yr; i++) {
+		cout << i << " of " << xr*yr << " copying to temp_px " << 4*i << " thru " << (4*i)+3 << endl;
+		temp_px[(4*i)] = outcopy.pixels[i].red;
+		temp_px[(4*i)+1] = outcopy.pixels[i].green;
+		temp_px[(4*i)+2] = outcopy.pixels[i].blue;
+		temp_px[(4*i)+3] = MAX_VAL;
+	}
+
+	// delete temp copy struct
+	//discardHDR(outcopy);
+
+	cout << "handing off to OIIO" << endl;
+	// open a file for writing the image. The file header will indicate an image of
+	// width xr, height yr, and 4 channels per pixel (RGBA). All channels will be of
+	// type unsigned char
+	ImageSpec ospec(xr, yr, 4, TypeDesc::UINT8);
+	if(!outfile->open(filename, ospec)){
+		cerr << "could not open output file! " << geterror() << endl;
+		return;
+	}
+
+	// write the image to the file, OIIO handles float->UINT8 conversion
+	if(!outfile->write_image(TypeDesc::UINT8, &temp_px[0])){
 		cerr << "could not write to file! " << geterror() << endl;
 		return;
 	}

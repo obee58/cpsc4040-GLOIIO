@@ -7,7 +7,7 @@
 //	Window controls: (using specific letters is getting complicated, geez)
 //	left/right arrows - switch view between original or working copy (similar behavior to imgview)
 //		note: using any other function will automatically switch back to the working copy
-//	c - toggle 1/2.2 gamma correction; enabled by default
+//	c - toggle 1/2.2 gamma correction when tonemapping; disabled by default
 //	b - create basic tonemapped version of HDR image (no gamma compression)
 //	g - tonemap using gamma compression (prompts for gamma value)
 //	r - revert working copy to the original and start over
@@ -167,7 +167,7 @@ void handleKey(unsigned char key, int x, int y){
 				cout << "enter output filename: ";
 				cin >> outstr;
 			}
-			writeImage(outstr, lowRange(imageCache[imageIndex]));
+			writeHDR(outstr, imageCache[imageIndex]);
 			return;
 		case 'q':		// q - quit
 		case 'Q':
