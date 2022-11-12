@@ -4,15 +4,13 @@
 //	CLI usage: tonemap [input].[hdr/exr] (output)
 //	Currently only supports simple tonemapping function.
 //	
-//	Window controls: (using specific letters is getting complicated, geez)
+//	Window controls:
 //	left/right arrows - switch view between original or working copy (similar behavior to imgview)
 //		note: using any other function will automatically switch back to the working copy
 //	c - toggle 1/2.2 gamma correction when tonemapping; disabled by default
 //	b - create basic tonemapped version of HDR image (no gamma compression)
 //	g - tonemap using gamma compression (prompts for gamma value)
 //	r - revert working copy to the original and start over
-//	(tentative) n - apply image normalization
-//	(tentative) h - apply histogram equalization
 //	w - write working copy to file (prompts on first use if no output argument provided)
 //	shift+w - "save as"; write working copy to file (always prompts)
 //	q or ESC - exit
@@ -41,7 +39,7 @@ OIIO_NAMESPACE_USING;
 //output filename
 static string outstr;
 //toggle whether or not to use 1/2.2 gamma correction when tonemapping
-static bool useCorrection = true;
+static bool useCorrection = false;
 //memory of loaded files/data
 static vector<ImageHDR> imageCache;
 //current index in vector to draw/use/modify
@@ -80,6 +78,61 @@ bool preserveOriginal(bool inform) {
 		return true;
 	}
 	return false;
+}
+
+/** GL PROCESSING FUNCTIONS **/
+//stupid reimplementation of old writeImage
+void captureWrite(string filename) {
+	int xr = glutGet(GLUT_WINDOW_WIDTH);
+	int yr = glutGet(GLUT_WINDOW_HEIGHT);
+	int channels = 4;
+	unsigned char px[channels * xr * yr];
+
+	// create the oiio file handler for the image
+	std::unique_ptr<ImageOutput> outfile = ImageOutput::create(filename);
+	if(!outfile){
+		cerr << "could not create output file! " << geterror() << endl;
+		//cancel routine
+		return;
+	}
+
+	// get the current pixels from the OpenGL framebuffer as bytes and store in pixmap
+	glReadPixels(0, 0, xr, yr, GL_RGBA, GL_UNSIGNED_BYTE, px);
+
+	//FLIP the image data so that it isn't upside down (framebuffer starts at bottom left)
+	unsigned char* pxflip = new unsigned char[xr*yr*channels];
+	int linebytes = xr*channels;
+	int destline = 0; //my pointer math was bad that day
+	for (int i=yr-1; i>=0; i--) {
+		for (int j=0; j<linebytes; j++) {
+			pxflip[(linebytes*i)+j] = px[(destline*linebytes)+j];
+		}
+		destline++;
+	}
+
+	// open a file for writing the image. The file header will indicate an image of
+	// width xr, height yr, and 4 channels per pixel (RGBA). All channels will be of
+	// type unsigned char
+	ImageSpec spec(xr, yr, channels, TypeDesc::UINT8);
+	if(!outfile->open(filename, spec)){
+		cerr << "could not open output file! " << geterror() << endl;
+		return;
+	}
+
+	// write the image to the file. All channel values in the pixmap are taken to be
+	// unsigned chars
+	if(!outfile->write_image(TypeDesc::UINT8, pxflip)){
+		cerr << "could not write to file! " << geterror() << endl;
+		return;
+	}
+	else cout << "successfully written image to " << filename << endl;
+	delete[] pxflip;
+
+	// close the image file after the image is written
+	if(!outfile->close()){
+		cerr << "could not close output file! " << geterror() << endl;
+		return;
+	}
 }
 
 /** OPENGL FUNCTIONS **/
@@ -167,7 +220,7 @@ void handleKey(unsigned char key, int x, int y){
 				cout << "enter output filename: ";
 				cin >> outstr;
 			}
-			writeHDR(outstr, imageCache[imageIndex]);
+			captureWrite(outstr);
 			return;
 		case 'q':		// q - quit
 		case 'Q':

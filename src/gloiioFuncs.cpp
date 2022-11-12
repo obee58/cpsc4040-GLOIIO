@@ -342,15 +342,13 @@ void writeHDR(string filename, ImageHDR image){
 		return;
 	}
 
-	cout << "readying" << endl;
 	//start readying and manipulating output copy
 	int xr = image.spec.width;
 	int yr = image.spec.height;
 	ImageHDR outcopy;
 	outcopy.spec = image.spec;
 	//outcopy.pixels = new flRGB[xr*yr];
-	
-	cout << "flipping" << endl;
+
 	//UNflip data vertically and transfer to copy
 	for (int row=0; row<(yr/2); row++) {
     	int antirow = (yr-1)-row;
@@ -364,7 +362,7 @@ void writeHDR(string filename, ImageHDR image){
 
 	cout << "unstructing" << endl;
 	//temporary 1d array to stick all the flRGB data into
-	vector<float> temp_px(xr*yr*4);
+	vector<float> temp_px(xr*yr*4); //segfault????
 	cout << "allocated" << endl;
 	for (int i=0; i<xr*yr; i++) {
 		cout << i << " of " << xr*yr << " copying to temp_px " << 4*i << " thru " << (4*i)+3 << endl;
@@ -687,6 +685,7 @@ void tonemap(ImageHDR image, double gamma, bool gcorrect) {
 	delete[] lumaD;
 }
 
+//dummied out extra credit
 //RGBA versions of these maybe sometime
 void normalize(ImageHDR image) {
 	//TODO low priority
