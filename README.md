@@ -1,4 +1,4 @@
-# cpsc4040-GLOIIO (v1.0.-1 "librarified")
+# cpsc4040-GLOIIO (v1.1.0 "tonemap")
 #### OpenGL/GLUT Program Suite to read, display, modify, and write images using the OpenImageIO API
 by Owen Book (obook@clemson.edu)
 
@@ -7,13 +7,13 @@ by Owen Book (obook@clemson.edu)
 ### Compilation
 Makefile is included. You can run these commands:
 
-`make`: clean compiled outputs and compile only `convolve`
+`make`: clean compiled outputs and compile only `tonemap`
 
 `make all`: compile all code into the program suite
 
 `make recompile`: clean compiled outputs and recompile all code into the program suite
 
-`make [imgview, alphamask, compose, convolve]`: compile just one program at a time
+`make [imgview, alphamask, compose, convolve, tonemap]`: compile just one specific program
 
 `make clean`: delete compiled outputs (will not touch images the program creates)
 
@@ -121,3 +121,36 @@ convolve currently copies the original pixel value to calculate values for pixel
 Additionally, the program currently uses a scale factor and clamping function to keep resulting values within 8 bits per channel. The original plan was to normalize the kernel when loading it, but I discarded this behavior during some confusion with calculations. The current method can make areas of some images too dark or too bright, especially if relatively large negative values are in the filter kernel.
 
 Edge calculation filters in general do not work too well with this version of the program.
+
+
+## tonemap
+**tonemap** is an experimental program for correcting and displaying high dynamic range (HDR) images. It supports .exr and .hdr formats.
+
+#### Controls
+left/right arrows: switch view between original or working copy (similar behavior to imgview)
+    - note: using any other function will automatically switch back to the working copy
+
+c: toggle 1/2.2 gamma correction when tonemapping; disabled by default
+
+b: create basic tonemapped version of HDR image (no gamma compression)
+
+g: tonemap using gamma compression (prompts for gamma value)
+
+r: revert working copy to the original and start over
+
+w: write working copy to file (prompts on first use if no output argument provided)
+
+shift+w: "save as"; write working copy to file (always prompts)
+
+q or ESC: exit
+
+#### Command-line usage
+Load the .exr or .hdr image you want to open. Additionally, you can specify your desired output filename from the command line instead of entering it upon pressing W.
+
+```tonemap [input].[hdr/exr] (output)```
+
+If either input file or filter file do not exist or cannot be opened, the program will exit. If you enter the wrong output filename,press SHIFT+W to change it.
+
+#### Known Issues
+Gamma correction cannot be adjusted and only takes effect during tonemapping. It divides all resulting values by 2.2, which can mess with brighter images, so it is disabled by default. If your results look too bright, try turning it on with C and reapplying your method.
+Because input on the command line and display window are different threads, it's difficult to lock one or both at the same time to prevent bizzare input reading bugs without digging into thread locking. If you press a control button on the window during a command line prompt on accident, behavior may not be as expected, and you may have to force-quit the program.

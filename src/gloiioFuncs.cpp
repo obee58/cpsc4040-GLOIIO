@@ -6,6 +6,10 @@
 void discardImage(ImageRGBA image) {
 	delete[] image.pixels;
 }
+/*	clean up memory of unneeded ImageHDR */
+void discardHDR(ImageHDR image) {
+	delete[] image.pixels;
+}
 /*	clean up memory of unneeded RawFilter */
 void discardRawFilter(RawFilter filt) {
 	delete[] filt.kernel;
@@ -23,7 +27,19 @@ double clampDouble(double x, double min, double max) {
 	return x;
 }
 
+/* calculates HDR luminance using Y'UV space function */
+double lumaYUV(flRGB px) {
+	return (double)((px.red*0.299) + (px.green*0.587) + (px.blue*0.114));
+}
+
 /* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
+flRGB linkflRGB(float r, float g, float b) {
+	flRGB px;
+	px.red = r;
+	px.green = g;
+	px.blue = b;
+	return px;
+}
 pxRGB linkRGB(unsigned char r, unsigned char g, unsigned char b) {
 	pxRGB px;
 	px.red = r;
@@ -176,10 +192,89 @@ ImageRGBA readImage(string filename) {
 				image.pixels[i].green = temp_px[(4*i)+1];
 				image.pixels[i].blue = temp_px[(4*i)+2];
 				image.pixels[i].alpha = temp_px[(4*i)+3];
-				break;
-			default: //something weird, just do nothing
+				break;	
+			default: //something weird, throw exception
+				throw runtime_error("weird number of channels");
 				break;
 		}
+	}
+
+	//close input
+	in->close();
+	return image;
+}
+
+//TODO test this weird thing
+/*  reads in image from specified filename as float RGB pixmap
+	returns an ImageHDR if successful
+	THROWS EXCEPTION ON IO FAIL - place in trycatch block if called outside of init */
+ImageHDR readHDR(string filename) {
+	std::unique_ptr<ImageInput> in = ImageInput::open(filename);
+	if (!in) {
+		std::cerr << "could not open input file! " << geterror();
+		//cancel routine
+		throw runtime_error("image input fail");
+	}
+
+	//store spec and get metadata from it
+	ImageHDR image;
+	image.spec = in->spec();
+	int xr = image.spec.width;
+	int yr = image.spec.height;
+	int channels = image.spec.nchannels;
+
+	//declare temp memory to read raw image data
+	vector<float> temp_px(xr*yr*channels);
+
+	// read the image into the temp_px from the input file
+	if(!in->read_image(TypeDesc::FLOAT, &temp_px[0])){
+		cerr << "Could not read image from " << filename << ", error = " << geterror() << endl;
+		//cancel routine
+		throw runtime_error("image input fail");
+  	}
+	
+	//allocate data for converted flRGB version
+	image.pixels = new flRGB[xr*yr];
+	//convert and store raw image data as flRGBs
+	for (int i=0; i<yr*xr; i++) {
+		switch(channels) {
+			//this could be more cleanly programmed but the less convoluted the better
+			case 1: //grayscale
+				image.pixels[i].red = temp_px[i];
+				image.pixels[i].green = temp_px[i];
+				image.pixels[i].blue = temp_px[i];
+				break;
+			case 2: //weird grayscale with alpha (just covering my ass here)
+				image.pixels[i].red = temp_px[2*i];
+				image.pixels[i].green = temp_px[2*i];
+				image.pixels[i].blue = temp_px[2*i];
+				break;
+			case 3: //RGB
+				image.pixels[i].red = temp_px[(3*i)];
+				image.pixels[i].green = temp_px[(3*i)+1];
+				image.pixels[i].blue = temp_px[(3*i)+2];
+				break;
+			case 4: //RGBA
+				image.pixels[i].red = temp_px[(4*i)];
+				image.pixels[i].green = temp_px[(4*i)+1];
+				image.pixels[i].blue = temp_px[(4*i)+2];
+				break;
+			default: //something weird, throw exception
+				throw runtime_error("weird number of channels");
+				break;
+		}
+	}
+
+	//flip data vertically (slow..)
+	for (int row=0; row<(yr/2); row++) {
+    	int antirow = (yr-1)-row;
+    	for (int col=0; col<xr; col++) {
+			int topInd = contigIndex(row,col,xr);
+			int botInd = contigIndex(antirow,col,xr);
+			flRGB temp = image.pixels[topInd];
+			image.pixels[topInd] = image.pixels[botInd];
+			image.pixels[botInd] = temp;
+    	}
 	}
 
 	//close input
@@ -224,6 +319,74 @@ void writeImage(string filename, ImageRGBA image){
 	// unsigned chars. flip using stride to undo same effort in readImage
 	int scanlinesize = xr * channels * sizeof(unsigned char);
 	if(!outfile->write_image(TypeDesc::UINT8, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
+		cerr << "could not write to file! " << geterror() << endl;
+		return;
+	}
+	else cout << "successfully written image to " << filename << endl;
+
+	// close the image file after the image is written
+	if(!outfile->close()){
+		cerr << "could not close output file! " << geterror() << endl;
+		return;
+	}
+}
+
+/* modified writeImage function that uses OIIO to
+ * automatically convert ImageHDR to LDR .png file */
+void writeHDR(string filename, ImageHDR image){
+	// create the oiio file handler for the image
+	std::unique_ptr<ImageOutput> outfile = ImageOutput::create(filename);
+	if(!outfile){
+		cerr << "could not create output file! " << geterror() << endl;
+		//cancel routine
+		return;
+	}
+
+	//start readying and manipulating output copy
+	int xr = image.spec.width;
+	int yr = image.spec.height;
+	ImageHDR outcopy;
+	outcopy.spec = image.spec;
+	//outcopy.pixels = new flRGB[xr*yr];
+
+	//UNflip data vertically and transfer to copy
+	for (int row=0; row<(yr/2); row++) {
+    	int antirow = (yr-1)-row;
+    	for (int col=0; col<xr; col++) {
+			int topInd = contigIndex(row,col,xr);
+			int botInd = contigIndex(antirow,col,xr);
+			outcopy.pixels[topInd] = image.pixels[botInd];
+			outcopy.pixels[botInd] = image.pixels[topInd];
+    	}
+	}
+
+	cout << "unstructing" << endl;
+	//temporary 1d array to stick all the flRGB data into
+	vector<float> temp_px(xr*yr*4); //segfault????
+	cout << "allocated" << endl;
+	for (int i=0; i<xr*yr; i++) {
+		cout << i << " of " << xr*yr << " copying to temp_px " << 4*i << " thru " << (4*i)+3 << endl;
+		temp_px[(4*i)] = outcopy.pixels[i].red;
+		temp_px[(4*i)+1] = outcopy.pixels[i].green;
+		temp_px[(4*i)+2] = outcopy.pixels[i].blue;
+		temp_px[(4*i)+3] = MAX_VAL;
+	}
+
+	// delete temp copy struct
+	//discardHDR(outcopy);
+
+	cout << "handing off to OIIO" << endl;
+	// open a file for writing the image. The file header will indicate an image of
+	// width xr, height yr, and 4 channels per pixel (RGBA). All channels will be of
+	// type unsigned char
+	ImageSpec ospec(xr, yr, 4, TypeDesc::UINT8);
+	if(!outfile->open(filename, ospec)){
+		cerr << "could not open output file! " << geterror() << endl;
+		return;
+	}
+
+	// write the image to the file, OIIO handles float->UINT8 conversion
+	if(!outfile->write_image(TypeDesc::UINT8, &temp_px[0])){
 		cerr << "could not write to file! " << geterror() << endl;
 		return;
 	}
@@ -285,6 +448,20 @@ ImageRGBA cloneImage(ImageRGBA origImage) {
 
 	copyImage.spec = origImage.spec;
 	copyImage.pixels = new pxRGBA[h*w];
+	for (int i=0; i<h*w; i++) {
+		copyImage.pixels[i] = origImage.pixels[i];
+	}
+	return copyImage;
+}
+
+/* same thing but for ImageHDR (really wish i could make these generic) */
+ImageHDR cloneHDR(ImageHDR origImage) {
+	ImageHDR copyImage;
+	int h = origImage.spec.height;
+	int w = origImage.spec.width;
+
+	copyImage.spec = origImage.spec;
+	copyImage.pixels = new flRGB[h*w];
 	for (int i=0; i<h*w; i++) {
 		copyImage.pixels[i] = origImage.pixels[i];
 	}
@@ -466,4 +643,54 @@ void convolve(RawFilter filt, ImageRGBA victim) {
 	}
 	delete[] tempkern;
 	delete[] result;
+}
+
+/* apply global tonemapping to HDR image
+ * if gamma >= 1.0, uses basic Lw/(Lw+1) function
+ * if gamma < 1.0, compresses luminance using gamma to rescale in log domain(?) 
+ * if gcorrect = true, also divides results by 2.2 (common display gamma correction) */
+void tonemap(ImageHDR image, double gamma, bool gcorrect) {
+	//TODO make gamma calculation not use pow() like it says in the document
+	int xr = image.spec.width;
+	int yr = image.spec.height;
+	double* lumaW = new double[xr*yr];
+
+	//compute luminance data Lw
+	for (int i=0; i<xr*yr; i++) {
+		lumaW[i] = lumaYUV(image.pixels[i]);
+	}
+
+	double* lumaD = new double[xr*yr];
+	//compute display luminance per pixel Ld
+	for (int i=0; i<xr*yr; i++) {
+		//if gamma provided (not >= 1), scale in log domain instead
+		if (gamma < 1.0) {
+			lumaD[i] = exp(log(lumaW[i])*gamma);
+		}
+		else {
+			lumaD[i] = lumaW[i]/(lumaW[i]+1.0);
+		}
+	}
+
+	//scale the channels by Ld/Lw
+	for (int i=0; i<xr*yr; i++) {
+		double scale = lumaD[i]/lumaW[i];
+		if (gcorrect) { scale /= 2.2; }
+		image.pixels[i].red *= scale;
+		image.pixels[i].green *= scale;
+		image.pixels[i].blue *= scale;
+	}
+
+	delete[] lumaW;
+	delete[] lumaD;
+}
+
+//dummied out extra credit
+//RGBA versions of these maybe sometime
+void normalize(ImageHDR image) {
+	//TODO low priority
+}
+
+void histoEqualize(ImageHDR image) {
+	//TODO low priority
 }
