@@ -1,4 +1,4 @@
-# cpsc4040-GLOIIO (v1.0.-1 "librarified")
+# cpsc4040-GLOIIO (v1.b "warper")
 #### OpenGL/GLUT Program Suite to read, display, modify, and write images using the OpenImageIO API
 by Owen Book (obook@clemson.edu)
 
@@ -121,3 +121,6 @@ convolve currently copies the original pixel value to calculate values for pixel
 Additionally, the program currently uses a scale factor and clamping function to keep resulting values within 8 bits per channel. The original plan was to normalize the kernel when loading it, but I discarded this behavior during some confusion with calculations. The current method can make areas of some images too dark or too bright, especially if relatively large negative values are in the filter kernel.
 
 Edge calculation filters in general do not work too well with this version of the program.
+
+## warper
+TODO

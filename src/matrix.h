@@ -3,6 +3,8 @@
 *   Author: Ioannis Karamouzas, 10/15/18
 *   The code is based on previous code from D. House
 */
+#ifndef KARAM_MATRIX_H
+#define KARAM_MATRIX_H
 
 #include <cstdio>
 #include <cmath>
@@ -57,3 +59,5 @@ struct BilinearCoeffs{
 void setbilinear(double width, double height,
 		 Vector2D xycorners[4], BilinearCoeffs &coeff);
 void invbilinear(const BilinearCoeffs &c, Vector2D xy, Vector2D &uv);
+
+#endif

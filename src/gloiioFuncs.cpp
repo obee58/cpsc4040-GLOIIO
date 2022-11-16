@@ -467,3 +467,7 @@ void convolve(RawFilter filt, ImageRGBA victim) {
 	delete[] tempkern;
 	delete[] result;
 }
+
+void transform(ImageRGBA image, Matrix3D matrix) {
+	//TODO last
+}

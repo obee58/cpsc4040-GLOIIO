@@ -1,5 +1,6 @@
 #ifndef GLOIIO_OB_FUNCS_H
 #define GLOIIO_OB_FUNCS_H
+#include "matrix.h"
 #include <OpenImageIO/imageio.h>
 #include <iostream>
 #include <fstream>
@@ -69,5 +70,6 @@ void noisify(ImageRGBA, int, int);
 void chromaKey(ImageRGBA, pxHSV, double, double, double);
 void compose(ImageRGBA, ImageRGBA);
 void convolve(RawFilter, ImageRGBA);
+void transform(ImageRGBA, Matrix3D);
 
 #endif

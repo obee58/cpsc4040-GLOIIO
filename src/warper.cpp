@@ -18,6 +18,7 @@
 //   usage: imgview [filenames]
 //
 #include "gloiioFuncs.h"
+#include "matrixBuilder.h"
 #include <OpenImageIO/imageio.h>
 #include <iostream>
 #include <string>
@@ -31,6 +32,7 @@
 #endif
 
 using namespace std;
+using namespace mtxb;
 OIIO_NAMESPACE_USING
 
 /** CONSTANTS & DEFINITIONS **/
@@ -41,13 +43,146 @@ OIIO_NAMESPACE_USING
 /** CONTROL & GLOBAL STATICS **/
 //list of read images for multi-image viewing mode
 static vector<ImageRGBA> imageCache;
-//current index in vector to attempt to load (left/right arrows)
-static int imageIndex = 0;
-//noisify chance (1/noiseDenom to replace with black pixel)
-static int noiseDenom = 5;
-//frame counter, currently only used for better random generation
-static int drawCount = 0;
+static int imageIndex = 0; //don't really need to touch it in this one
+//current output path target
+static string outstr;
+//the current transformation matrix
+static Matrix3D tmatrix;
 
+/** CONTROL FUNCTIONS **/
+/* Build a transformation matrix from input text */
+void mtxInput(Matrix3D &M) {
+	string cmd;
+	/* prompt for user input */
+	do {
+		cout << "> ";
+		cin >> cmd;
+		if (cmd.length() != 1){
+			cout << "invalid command, enter r, s, t, h, f, p, n, m, d\n";
+		}
+		else {
+			switch (cmd[0]) {
+				case 'r':		/* Rotation, accept angle in degrees */
+					float theta;
+					cin >> theta;
+					if (cin) {
+						cout << "rotating..." << endl;
+						rotate(M, theta);
+					}
+					else {
+						cerr << "invalid rotation angle" << endl;
+						cin.clear();
+					}						
+					break;
+				case 's':		/* scale, accept scale factors */
+					float sx, sy;
+					cin >> sx;
+					cin >> sy;
+					if (cin && sx != 0.0 && sy == 0.0) {
+						cout << "scaling by " << sx << ", " << sy << endl;
+						scale(M, sx, sy);
+					}
+					else {
+						cerr << "invalid scale factors" << endl;
+						cin.clear();
+					}
+					break;
+				case 't':		/* Translation, accept translations */
+					float dx, dy;
+					cin >> dx;
+					cin >> dy;
+					if (cin) {
+						cout << "translating by " << dx << ", " << dy << endl;
+						translate(M, dx, dy);
+					}
+					else {
+						cerr << "invalid translation" << endl;
+						cin.clear();
+					}
+					break;
+				case 'h':		/* Shear, accept shear factors */
+					float hx, hy;
+					cin >> hx;
+					cin >> hy;
+					if (cin) {
+						cout << "shearing by " << hx << ", " << hy << endl;
+						shear(M, hx, hy);
+					}
+					else {
+						cerr << "invalid shear factors" << endl;
+						cin.clear();
+					}
+					break;
+				case 'f':		/* Flip, accept flip factors */
+					int fx, fy;
+					cin >> fx;
+					cin >> fy;
+					if (cin) {
+						bool horiz = fx>0;
+						bool vert = fy>0;
+						if (horiz && vert) { cout << "flipping horizontally and vertically" << endl; }
+						else if (horiz) { cout << "flipping horizontally" << endl; }
+						else if (vert) { cout << "flipping vertically" << endl; }
+						flip(M, horiz, vert);
+					}
+					else {
+						cerr << "what" << endl;
+						cin.clear();
+					}
+					break;
+				case 'p':		/* Perspective, accept perspective factors */
+					float px, py;
+					cin >> px;
+					cin >> py;
+					if (cin) {
+						cout << "perspective warp by " << px << ", " << py << endl;
+						perspective(M, px, py);
+					}
+					else {
+						cerr << "invalid perspective factors" << endl;
+						cin.clear();
+					}
+					break;
+				case 'n':
+					float cx, cy, s;
+					cin >> cx;
+					cin >> cy;
+					cin >> s;
+					if (cin) {
+						cout << "twirling at " << cx << ", " << cy << " with strength " << s << endl;
+						twirl(M, cx, cy, s);
+					}
+					else {
+						cerr << "invalid twirl position/strength" << endl;
+						cin.clear();
+					}
+					break;
+				case 'm':
+					int tx, ty;
+					float ax, ay;
+					cin >> tx;
+					cin >> ty;
+					cin >> ax;
+					cin >> ay;
+					if (cin) {
+						cout << "rippling with period " << tx << ", " << ty << " and amplitude " << ax << ", " << ay << endl;
+						ripple(M, tx, ty, ax, ay);
+					}
+					else {
+						cerr << "invalid period length/amplitude" << endl;
+						cin.clear();
+					}
+					break;
+				case 'd':		/* Done, that's all for now */
+					cout << "accumulated matrix: " << endl;
+    				M.print();
+					break;
+				default:
+					cout << "invalid command, enter r, s, t, h, f, p, n, m, d\n";
+			}
+		}
+	} while (cmd.compare("d")!=0);
+}
 
 /** OPENGL FUNCTIONS **/
 /* main display callback: displays the image of current index from imageCache. 
@@ -69,8 +204,6 @@ void draw(){
 		glDrawPixels(spec->width,spec->height,GL_RGBA,GL_UNSIGNED_BYTE,&imageCache[imageIndex].pixels[0]);
 		glDisable(GL_BLEND);
 	}
-	//increment draws count
-	drawCount++;
 	//flush to viewport
 	glFlush();
 }
@@ -84,46 +217,20 @@ void refitWindow() {
 }
 
 /*
-   Keyboard Callback Routine: 'c' cycle through colors, 'q' or ESC quit,
-   'w' write the framebuffer to a file.
+   Keyboard Callback Routine
    This routine is called every time a key is pressed on the keyboard
 */
 void handleKey(unsigned char key, int x, int y){
 	string fn;
 	switch(key){
-		case 'z':
-		case 'Z':
-			refitWindow();
-			break;
-
-		case 'r':
-		case 'R':
-			cout << "enter input filename: ";
-			cin >> fn;
-			try {
-				imageCache.push_back(readImage(fn));
-				imageIndex = imageCache.size()-1;
-			}
-			catch (exception &e) {} //(error message is inside readImage already)
-			break;
-		
 		case 'w':
 		case 'W':
-			cout << "enter output filename: ";
-			cin >> fn;
+			if (outstr.empty() || glutGetModifiers() == GLUT_ACTIVE_SHIFT) {
+				cout << "enter output filename: ";
+				cin >> outstr;
+			}
 			writeImage(fn, imageCache[imageIndex]);
 			break;
-
-		case 'i':
-		case 'I':
-			invert(imageCache[imageIndex]);
-			break;
-		
-		case 'n':
-		case 'N':
-			noisify(imageCache[imageIndex], noiseDenom, drawCount);
-			break;
-		
 		case 'q':		// q - quit
 		case 'Q':
 		case 27:		// esc - quit
@@ -131,27 +238,6 @@ void handleKey(unsigned char key, int x, int y){
 		
 		default:		// not a valid key -- just ignore it
 			return;
-	}
-}
-
-void specialKey(int key, int x, int y) {
-	switch(key) {
-		case GLUT_KEY_LEFT:
-			//cout << "was displaying image " << imageIndex+1 << " of " << imageCache.size() << endl;
-			if (imageIndex > 0) {
-				imageIndex--;
-				cout << "image " << imageIndex+1 << " of " << imageCache.size() << endl;
-			}
-			break;
-		case GLUT_KEY_RIGHT:
-			//cout << "was displaying image " << imageIndex+1 << " of " << imageCache.size() << endl;
-			if (imageIndex < imageCache.size()-1 && imageCache.size() > 0) {
-				imageIndex++;
-				cout << "image " << imageIndex+1 << " of " << imageCache.size() << endl;
-			}
-			break;
-		default:
-			return; //ignore other keys
 	}
 }
 
@@ -181,12 +267,35 @@ void timer( int value )
 /* main control method that sets up the GL environment
 	and handles command line arguments */
 int main(int argc, char* argv[]){
-	//read arguments as filenames and attempt to read requested files
-	for (int i=1; i<argc; i++) {
-		imageCache.push_back(readImage(string(argv[i])));
+	if (argc >= 2) {
+		string instr = string(argv[1]);
+
+		//read from file
+		imageCache.push_back(readImage(instr));
+		imageIndex = imageCache.size()-1;
+		//set output if given 3rd filename
+		if (argc >= 3) {
+			outstr = string(argv[2]);
+		}
+
+		//enter matrix building mode
+		mtxInput(tmatrix);
+
+		//image warp TODO
+
+		//write to file and mention display controls
+		if (!outstr.empty()) {
+			writeImage(outstr, imageCache[imageIndex]);
+		}
+		else {
+			cout << "press W in window to save, ";
+		}
+		cout << "press Q or ESC in window to exit" << endl;
 	}
-	//always display first image on load
-	imageIndex = 0;
+	else {
+		cerr << "usage: warper [input].png (output).png" << endl;
+		exit(1);
+	}
 
 	// start up the glut utilities
 	glutInit(&argc, argv);
@@ -194,13 +303,12 @@ int main(int argc, char* argv[]){
 	// create the graphics window, giving width, height, and title text
 	glutInitDisplayMode(GLUT_SINGLE | GLUT_RGBA);
 	glutInitWindowSize(DEFAULT_WIDTH, DEFAULT_HEIGHT);
-	glutCreateWindow("Get the Picture");
+	glutCreateWindow("warper");
 
 	// set up the callback routines to be called when glutMainLoop() detects
 	// an event
 	glutDisplayFunc(draw);	  // display callback
 	glutKeyboardFunc(handleKey);	  // keyboard callback
-	glutSpecialFunc(specialKey); //special callback (arrow keys, etc.)
 	glutReshapeFunc(handleReshape); // window resize callback
 	glutTimerFunc(0, timer, 0); //timer func to force redraws
 
