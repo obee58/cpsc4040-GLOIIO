@@ -29,7 +29,7 @@ compose:
 convolve:
 	${CXX} ${CPPFLAGS} -o convolve src/convolve.cpp src/gloiioFuncs.cpp src/matrix.cpp ${LD}
 warper:
-	${CXX} ${CPPFLAGS} -o convolve src/convolve.cpp src/gloiioFuncs.cpp src/matrixBuilder.cpp src/matrix.cpp ${LD}
+	${CXX} ${CPPFLAGS} -o warper src/warper.cpp src/gloiioFuncs.cpp src/matrixBuilder.cpp src/matrix.cpp ${LD}
 
 clean:
 	rm -f core.* *.o *~ imgview alphamask compose convolve warper

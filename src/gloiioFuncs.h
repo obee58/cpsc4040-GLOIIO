@@ -4,6 +4,7 @@
 #include <OpenImageIO/imageio.h>
 #include <iostream>
 #include <fstream>
+#include <climits>
 #include <string>
 #include <cmath>
 #include <random>
@@ -70,6 +71,6 @@ void noisify(ImageRGBA, int, int);
 void chromaKey(ImageRGBA, pxHSV, double, double, double);
 void compose(ImageRGBA, ImageRGBA);
 void convolve(RawFilter, ImageRGBA);
-void transform(ImageRGBA, Matrix3D);
+ImageRGBA matrixWarp(ImageRGBA, Matrix3D);
 
 #endif

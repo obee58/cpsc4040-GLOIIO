@@ -1,4 +1,4 @@
-//
+//TODO update
 //   OpenGL/GLUT Program to read, display, modify, and write images
 //   using the OpenImageIO API
 //
@@ -66,7 +66,7 @@ void mtxInput(Matrix3D &M) {
 					float theta;
 					cin >> theta;
 					if (cin) {
-						cout << "rotating..." << endl;
+						cout << "rotating by " << theta << " degrees" << endl;
 						rotate(M, theta);
 					}
 					else {
@@ -78,7 +78,7 @@ void mtxInput(Matrix3D &M) {
 					float sx, sy;
 					cin >> sx;
 					cin >> sy;
-					if (cin && sx != 0.0 && sy == 0.0) {
+					if (cin && sx != 0.0 && sy != 0.0) {
 						cout << "scaling by " << sx << ", " << sy << endl;
 						scale(M, sx, sy);
 					}
@@ -143,7 +143,7 @@ void mtxInput(Matrix3D &M) {
 						cin.clear();
 					}
 					break;
-				case 'n':
+				case 'n': // do before or after? not matrix i don't think
 					float cx, cy, s;
 					cin >> cx;
 					cin >> cy;
@@ -157,7 +157,7 @@ void mtxInput(Matrix3D &M) {
 						cin.clear();
 					}
 					break;
-				case 'm':
+				case 'm': // same issue as twirl
 					int tx, ty;
 					float ax, ay;
 					cin >> tx;
@@ -221,15 +221,18 @@ void refitWindow() {
    This routine is called every time a key is pressed on the keyboard
 */
 void handleKey(unsigned char key, int x, int y){
-	string fn;
 	switch(key){
+		case 'z':
+		case 'Z':
+			refitWindow();
+			break;
 		case 'w':
 		case 'W':
 			if (outstr.empty() || glutGetModifiers() == GLUT_ACTIVE_SHIFT) {
 				cout << "enter output filename: ";
 				cin >> outstr;
 			}
-			writeImage(fn, imageCache[imageIndex]);
+			writeImage(outstr, imageCache[imageIndex]);
 			break;
 		case 'q':		// q - quit
 		case 'Q':
@@ -281,7 +284,11 @@ int main(int argc, char* argv[]){
 		//enter matrix building mode
 		mtxInput(tmatrix);
 
-		//image warp TODO
+		//image warp (oh dear)
+		ImageRGBA warped = matrixWarp(imageCache[imageIndex], tmatrix);
+		imageCache.push_back(warped);
+		discardImage(imageCache[0]);
+		imageCache.erase(imageCache.begin());
 
 		//write to file and mention display controls
 		if (!outstr.empty()) {

@@ -13,16 +13,22 @@
 #define PI		3.1415926536
 #endif
 
-struct Vector3D{
-  double x, y, z;
-  Vector3D(): x(0),y(0),z(1) {}
-  Vector3D(double x_, double y_, double z_): x(x_), y(y_), z(z_) {}
+class Vector3D{
+  public:
+    double x, y, z;
+    Vector3D(): x(0),y(0),z(1) {}
+    Vector3D(double x_, double y_, double z_): x(x_), y(y_), z(z_) {}
+    Vector3D operator+(const Vector3D) const;
+    Vector3D operator-(const Vector3D) const;
+    Vector3D operator*(double) const;
+    Vector3D operator/(double) const;
 };
 
-struct Vector2D{
-  double x, y;
-  Vector2D(): x(0),y(0) {}
-  Vector2D(double x_, double y_): x(x_), y(y_) {}
+class Vector2D{
+  public:
+    double x, y;
+    Vector2D(): x(0),y(0) {}
+    Vector2D(double x_, double y_): x(x_), y(y_) {}
 };
 
 class Matrix3D{

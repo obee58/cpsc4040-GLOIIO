@@ -8,6 +8,21 @@
 
 using namespace std;
 
+/* operator functions for vector3D to simplify things */
+Vector3D Vector3D::operator+(const Vector3D other) const{
+  return Vector3D(x+other.x, y+other.y, z+other.y);
+}
+Vector3D Vector3D::operator-(const Vector3D other) const{
+  return Vector3D(x-other.x, y-other.y, z-other.y);
+}
+Vector3D Vector3D::operator*(double scalar) const{
+  return Vector3D(x*scalar, y*scalar, z*scalar);
+}
+Vector3D Vector3D::operator/(double scalar) const{
+  return Vector3D(x/scalar, y/scalar, z/scalar);
+}
+
+
 Matrix3D::Matrix3D(){
   setidentity();
 }
