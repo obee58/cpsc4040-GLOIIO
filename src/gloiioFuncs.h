@@ -64,10 +64,6 @@ ImageRGBA readImage(string);
 void writeImage(string, ImageRGBA);
 RawFilter readFilter(string);
 ImageRGBA cloneImage(ImageRGBA);
-void invert(ImageRGBA);
-void noisify(ImageRGBA, int, int);
-void chromaKey(ImageRGBA, pxHSV, double, double, double);
-void compose(ImageRGBA, ImageRGBA);
 void convolve(RawFilter, ImageRGBA);
 
 #endif

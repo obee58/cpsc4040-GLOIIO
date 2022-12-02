@@ -43,10 +43,6 @@ OIIO_NAMESPACE_USING
 static vector<ImageRGBA> imageCache;
 //current index in vector to attempt to load (left/right arrows)
 static int imageIndex = 0;
-//noisify chance (1/noiseDenom to replace with black pixel)
-static int noiseDenom = 5;
-//frame counter, currently only used for better random generation
-static int drawCount = 0;
 
 /** PROCESSING FUNCTIONS **/
 //from starter code
@@ -108,8 +104,6 @@ void draw(){
 		glDrawPixels(spec->width,spec->height,GL_RGBA,GL_UNSIGNED_BYTE,&imageCache[imageIndex].pixels[0]);
 		glDisable(GL_BLEND);
 	}
-	//increment draws count
-	drawCount++;
 	//flush to viewport
 	glFlush();
 }
@@ -137,7 +131,7 @@ void handleKey(unsigned char key, int x, int y){
 
 		case 'r':
 		case 'R':
-			//TODO this is where the magnif reconstruction function gets called
+			//TODO this is where the magnif reconstruction routine gets called
 			break;
 		
 		case 'w':
