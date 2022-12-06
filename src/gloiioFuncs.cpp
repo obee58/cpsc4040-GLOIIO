@@ -468,67 +468,53 @@ void convolve(RawFilter filt, ImageRGBA victim) {
 	delete[] result;
 }
 
-ImageRGBA matrixWarp(ImageRGBA image, Matrix3D matrix) {
-	/* step 1 bounding box */
-	int yr = image.spec.height;
-	int xr = image.spec.width;
-	//ugly code
-	vector<Vector3D> corners;
-	corners.push_back(matrix*Vector3D(0,0,1));
-	corners.push_back(matrix*Vector3D(xr,0,1));
-	corners.push_back(matrix*Vector3D(0,yr,1));
-	corners.push_back(matrix*Vector3D(xr,yr,1));
-	int maxx = INT_MIN; //aka right
-	int maxy = INT_MIN; //aka top(?)
-	int minx = INT_MAX; //aka left
-	int miny = INT_MAX; //aka bottom(?)
-	for (int i=0; i<corners.size()-1; i++) {
-		//normalize by w' (z)
-		corners[i] = corners[i]/corners[i].z;
-		cout << i << ": " << corners[i].x << "," << corners[i].y << "," << corners[i].z << endl;
-		//adjust max and min x and y coordinates
-		maxx = (maxx < corners[i].x)? ceil(corners[i].x) : maxx;
-		maxy = (maxy < corners[i].y)? ceil(corners[i].y) : maxy;
-		minx = (minx > corners[i].x)? floor(corners[i].x) : minx;
-		miny = (miny > corners[i].y)? floor(corners[i].y) : miny;
-	}
-	//subtract to find necessary space
-	int boundsx = maxx - minx;
-	int boundsy = maxy - miny;
+/* use a simple warp to scale down/up the image to fit desired size 
+ * can scale width and height independently */
+ImageRGBA scale(ImageRGBA image, double factorx, double factory) {
+	/* target image size */
+	int oxRes = image.spec.width; //original resolution
+	int oyRes = image.spec.height;
+	//NOTE maybe round/ceil/floor these?
+	int txRes = image.spec.width*factorx; //target resolution
+	int tyRes = image.spec.height*factory;
+	
+	/* allocate output */
+	cout << "allocating space " << txRes << "x" << tyRes << endl; //debug
+	pxRGBA* output = new pxRGBA[txRes*tyRes];
 
-	/* step 2 allocate output */
-	cout << "allocating space " << boundsx << "x" << boundsy << endl; //debug
-	pxRGBA* output = new pxRGBA[boundsx*boundsy];
+	/* apply inverse map */
+	for (int iny=0; iny<boundsy; y++) {
+		for (int inx=0; inx<boundsx; x++) {
+			//TODO reference okwarp to make sure this logic is correct
+			//definitions of "input" and "output" in inverse map are really confusing!!!
 
-	/* step 3 compute invM */
-	Matrix3D tr; //"done more efficiently" slide
-	tr[0][2] = -minx;
-	tr[1][2] = -miny;
-	matrix = tr * matrix;
-	Matrix3D invmatrix = matrix.inverse(); //wow!
-
-	/* step 4 apply inverse map */
-	for (int y=0; y<boundsy; y++) {
-		for (int x=0; x<boundsx; x++) {
-			//map coordinates
-			Vector3D outpx(x,y,1);
-			Vector3D inpx = invmatrix * outpx;
-			//normalize pixmap
-			float u = inpx.x / inpx.z;
-			float v = inpx.y / inpx.z;
-			//apply warp by copying pixel
-			//(better interpolation can go here)
+			//normalize x,y to 0...1 ("output pixel")
+			double outx = inx/txRes;
+			double outy = iny/tyRes;
+			//calculate u,v and scale back to pixel coords
+			double u = outx*factorx*oxRes;
+			double v = outy*factory*oyRes;
+			//TODO better interpolation can go here?
 			int inu = round(u);
 			int inv = round(v);
-			output[contigIndex(y,x,boundsx)] = image.pixels[contigIndex(inv,inu,xr)];
+			//apply warp by copying pixel
+			output[contigIndex(iny,inx,boundsx)] = image.pixels[contigIndex(inv,inu,xr)];
 		}
 	}
 
-	/* step 5 redefine ImageRGBA */
+	/* redefine ImageRGBA */
 	ImageRGBA result;
 	result.pixels = output;
-	result.spec = image.spec;
+	result.spec = image.spec; //i can only pray that this works fine for writing to file
 	result.spec.height = boundsy;
 	result.spec.width = boundsx;
 	return result;
 }
+
+/* handy override for scale factor auto-calculation from exact size */
+ImageRGBA scale(ImageRGBA image, int txRes, int tyRes) {
+	double factorx = (double)txRes/image.spec.width;
+	double factory = (double)tyRes/image.spec.height;
+	return scale(image, factorx, factory);
+}
+

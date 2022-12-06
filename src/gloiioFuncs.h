@@ -1,6 +1,5 @@
 #ifndef GLOIIO_OB_FUNCS_H
 #define GLOIIO_OB_FUNCS_H
-#include "matrix.h"
 #include <OpenImageIO/imageio.h>
 #include <iostream>
 #include <fstream>
@@ -51,10 +50,12 @@ typedef struct convolve_filt_t {
 	double* kernel;
 } RawFilter;
 
+//math & shorthand functions
 void discardImage(ImageRGBA);
 void discardRawFilter(RawFilter);
 int clampInt(int,int,int);
 double clampDouble(double,double,double);
+//type conversion & struct creation functions
 pxRGB linkRGB(unsigned char,unsigned char,unsigned char);
 pxRGBA linkRGBA(unsigned char,unsigned char,unsigned char,unsigned char);
 pxHSV linkHSV(double,double,double);
@@ -62,15 +63,18 @@ flRGBA percentify(pxRGBA);
 pxRGBA premult(pxRGBA);
 pxHSV RGBtoHSV(pxRGB);
 pxHSV RGBAtoHSV(pxRGBA);
+ImageRGBA cloneImage(ImageRGBA);
+//i/o functions
 ImageRGBA readImage(string);
 void writeImage(string, ImageRGBA);
 RawFilter readFilter(string);
-ImageRGBA cloneImage(ImageRGBA);
+//manipulation functions
 void invert(ImageRGBA);
 void noisify(ImageRGBA, int, int);
 void chromaKey(ImageRGBA, pxHSV, double, double, double);
 void compose(ImageRGBA, ImageRGBA);
 void convolve(RawFilter, ImageRGBA);
-ImageRGBA matrixWarp(ImageRGBA, Matrix3D);
+ImageRGBA scale(ImageRGBA, double, double); //overall scaling factor (main code goes in here)
+ImageRGBA scale(ImageRGBA, int, int); //exact target size
 
 #endif
