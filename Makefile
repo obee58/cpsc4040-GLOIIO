@@ -11,25 +11,25 @@ endif
 
 # I have spent an hour on fixing this makefile and make refuses to read a list one-by-one
 # just copy the lines and replace the filenames
-default: clean warper
+default: clean steno
 
 project1: imgview
 project3: alphamask compose
 project4: convolve
-project6: warper
-all: imgview alphamask compose convolve warper
+final: steno
+all: imgview alphamask compose convolve steno
 recompile: clean all
 
 imgview:
-	${CXX} ${CPPFLAGS} -o imgview src/imgview.cpp src/gloiioFuncs.cpp src/matrix.cpp ${LD}
+	${CXX} ${CPPFLAGS} -o imgview.out src/imgview.cpp src/gloiioFuncs.cpp ${LD}
 alphamask:
-	${CXX} ${CPPFLAGS} -o alphamask src/alphamask.cpp src/gloiioFuncs.cpp src/matrix.cpp ${LD}
+	${CXX} ${CPPFLAGS} -o alphamask.out src/alphamask.cpp src/gloiioFuncs.cpp ${LD}
 compose:
-	${CXX} ${CPPFLAGS} -o compose src/compose.cpp src/gloiioFuncs.cpp src/matrix.cpp ${LD}
+	${CXX} ${CPPFLAGS} -o compose.out src/compose.cpp src/gloiioFuncs.cpp ${LD}
 convolve:
-	${CXX} ${CPPFLAGS} -o convolve src/convolve.cpp src/gloiioFuncs.cpp src/matrix.cpp ${LD}
-warper:
-	${CXX} ${CPPFLAGS} -o warper src/warper.cpp src/gloiioFuncs.cpp src/matrixBuilder.cpp src/matrix.cpp ${LD}
+	${CXX} ${CPPFLAGS} -o convolve.out src/convolve.cpp src/gloiioFuncs.cpp ${LD}
+steno:
+	${CXX} ${CPPFLAGS} -o steno.out src/steno.cpp src/gloiioFuncs.cpp ${LD}
 
 clean:
-	rm -f core.* *.o *~ imgview alphamask compose convolve warper
+	rm -f core.* *.o *~ imgview alphamask compose convolve steno
