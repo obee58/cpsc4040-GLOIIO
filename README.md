@@ -1,4 +1,4 @@
-# cpsc4040-GLOIIO (v1.b "warper")
+# cpsc4040-GLOIIO (v1.b.f "steno")
 #### OpenGL/GLUT Program Suite to read, display, modify, and write images using the OpenImageIO API
 by Owen Book (obook@clemson.edu)
 
@@ -7,13 +7,13 @@ by Owen Book (obook@clemson.edu)
 ### Compilation
 Makefile is included. You can run these commands:
 
-`make`: clean compiled outputs and compile only `convolve`
+`make`: clean compiled outputs and compile only `steno`
 
 `make all`: compile all code into the program suite
 
 `make recompile`: clean compiled outputs and recompile all code into the program suite
 
-`make [imgview, alphamask, compose, convolve]`: compile just one program at a time
+`make [imgview, alphamask, compose, convolve, steno]`: compile just one program at a time
 
 `make clean`: delete compiled outputs (will not touch images the program creates)
 
@@ -122,5 +122,5 @@ Additionally, the program currently uses a scale factor and clamping function to
 
 Edge calculation filters in general do not work too well with this version of the program.
 
-## warper
+## steno
 TODO
