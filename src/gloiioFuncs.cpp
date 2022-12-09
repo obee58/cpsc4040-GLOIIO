@@ -24,14 +24,14 @@ double clampDouble(double x, double min, double max) {
 }
 
 /* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
-pxRGB linkRGB(unsigned char r, unsigned char g, unsigned char b) {
+pxRGB linkRGB(ch_uint r, ch_uint g, ch_uint b) {
 	pxRGB px;
 	px.red = r;
 	px.green = g;
 	px.blue = b;
 	return px;
 }
-pxRGBA linkRGBA(unsigned char r, unsigned char g, unsigned char b, unsigned char a) {
+pxRGBA linkRGBA(ch_uint r, ch_uint g, ch_uint b, ch_uint a) {
 	pxRGBA px;
 	px.red = r;
 	px.green = g;
@@ -60,9 +60,9 @@ flRGBA percentify(pxRGBA px) {
 /* get premultiplied/associated version of a pxRGBA */
 pxRGBA premult(pxRGBA pure) {
 	double a = double(pure.alpha)/MAX_VAL; //alpha 0~1
-	unsigned char r = pure.red*a;
-	unsigned char g = pure.green*a;
-	unsigned char b = pure.blue*a;
+	ch_uint r = pure.red*a;
+	ch_uint g = pure.green*a;
+	ch_uint b = pure.blue*a;
 	return linkRGBA(r,g,b,pure.alpha);
 }
 
@@ -135,12 +135,12 @@ ImageRGBA readImage(string filename) {
 	int channels = image.spec.nchannels;
 
 	//declare temp memory to read raw image data
-	unsigned char temp_px[xr*yr*channels];
+	ch_uint temp_px[xr*yr*channels];
 
 	// read the image into the temp_px from the input file, flipping it upside down using negative y-stride,
 	// since OpenGL pixmaps have the bottom scanline first, and 
 	// oiio expects the top scanline first in the image file.
-	int scanlinesize = xr * channels * sizeof(unsigned char);
+	int scanlinesize = xr * channels * sizeof(ch_uint);
 	if(!in->read_image(TypeDesc::UINT8, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
 		cerr << "Could not read image from " << filename << ", error = " << geterror() << endl;
 		//cancel routine
@@ -187,6 +187,60 @@ ImageRGBA readImage(string filename) {
 	return image;
 }
 
+/*	forcefully reads a file as an """image""" regardless of what it is
+	does not actually use OIIO, but creates a partial ImageSpec for later handling
+	dimensions are not defined, draw() & steno functions apply a sort of "word wrap"
+	THROWS EXCEPTION ON IO FAIL - place in trycatch block if called outside of init */
+ImageRGBA readRaw(string filename) {
+	fstream in = open(filename, fstream::in);
+	if (ios::fail() || !in) {
+		std::cerr << "could not open input file! " << endl;
+		//cancel routine
+		throw runtime_error("raw input fail");
+	}
+
+	//find size of file (OS-agnostic i think)
+	in.seekg(0, ios::end);
+	unsigned int filesize = in.tellg(); //please do not give this program a 4.294 GB file
+	if (filesize > RAW_MAX || ios::fail()) {
+		std::cerr << "input file too large! got" << filesize << "bytes, limit is " << RAW_MAX << endl;
+		//cancel routine
+		throw runtime_error("raw size fail");
+	}
+	in.seekg(0, ios::beg);
+
+	//define struct metadata
+	ImageRGBA image;
+	image.spec.nchannels = 4;
+
+	//declare pixel value memory to store data in
+	pxRGBA* data = new pxRGBA[filesize/4];
+	//bad code
+	for (unsigned int i=0; i<filesize; i++) {
+		ch_uint raw;
+		if (!in.get(raw)) { break; } //TODO maybe clean error
+		switch(filesize%4) {
+			case 0:
+				data[i/4].red = raw;
+				break;
+			case 1:
+				data[i/4].green = raw;
+				break;
+			case 2:
+				data[i/4].blue = raw;
+				break;
+			case 3:
+				data[i/4].alpha = raw;
+				break;
+			default: break; //what
+		}
+	}
+	image.pixels = data;
+
+	close(in);
+	return image;
+}
+
 /* writes currently dixplayed pixmap (as RGBA) to a file
 	(mostly the same as sample code) */
 void writeImage(string filename, ImageRGBA image){
@@ -195,7 +249,7 @@ void writeImage(string filename, ImageRGBA image){
 	int channels = 4;
 	//temporary 1d array to stick all the pxRGBA data into
 	//write_image does not like my structs >:(
-	unsigned char temp_px[xr*yr*channels];
+	ch_uint temp_px[xr*yr*channels];
 	for (int i=0; i<xr*yr; i++) {
 		temp_px[(4*i)] = image.pixels[i].red;
 		temp_px[(4*i)+1] = image.pixels[i].green;
@@ -213,7 +267,7 @@ void writeImage(string filename, ImageRGBA image){
 
 	// open a file for writing the image. The file header will indicate an image of
 	// width xr, height yr, and 4 channels per pixel (RGBA). All channels will be of
-	// type unsigned char
+	// type ch_uint
 	ImageSpec spec(xr, yr, channels, TypeDesc::UINT8);
 	if(!outfile->open(filename, spec)){
 		cerr << "could not open output file! " << geterror() << endl;
@@ -221,8 +275,8 @@ void writeImage(string filename, ImageRGBA image){
 	}
 
 	// write the image to the file. All channel values in the pixmap are taken to be
-	// unsigned chars. flip using stride to undo same effort in readImage
-	int scanlinesize = xr * channels * sizeof(unsigned char);
+	// ch_uints. flip using stride to undo same effort in readImage
+	int scanlinesize = xr * channels * sizeof(ch_uint);
 	if(!outfile->write_image(TypeDesc::UINT8, temp_px+((yr-1)*scanlinesize), AutoStride, -scanlinesize)){
 		cerr << "could not write to file! " << geterror() << endl;
 		return;
@@ -345,7 +399,7 @@ void chromaKey(ImageRGBA image, pxHSV target, double huefuzz, double satfuzz, do
 			maskalpha = (maskalpha > 1.0? 1.0 : maskalpha);
 			
 			//cout << "masking pixel: " << comp.hue << " " << comp.saturation << " " << comp.value << " to alpha value " << maskalpha << endl;
-			image.pixels[i].alpha = (unsigned char)255*maskalpha;
+			image.pixels[i].alpha = (ch_uint)MAX_VAL*maskalpha;
 		}
 	}
 }
@@ -443,9 +497,9 @@ void convolve(RawFilter filt, ImageRGBA victim) {
 			}
 			//scale, clamp, and apply to new pixel
 			pxRGBA* npx = &(result[iindex]);
-			npx->red = (unsigned char)clampDouble(totalRed/filt.scale, 0, MAX_VAL);
-			npx->green = (unsigned char)clampDouble(totalGreen/filt.scale, 0, MAX_VAL);
-			npx->blue = (unsigned char)clampDouble(totalBlue/filt.scale, 0, MAX_VAL);
+			npx->red = (ch_uint)clampDouble(totalRed/filt.scale, 0, MAX_VAL);
+			npx->green = (ch_uint)clampDouble(totalGreen/filt.scale, 0, MAX_VAL);
+			npx->blue = (ch_uint)clampDouble(totalBlue/filt.scale, 0, MAX_VAL);
 			npx->alpha = victim.pixels[iindex].alpha; //don't touch alpha
 			//if (debugCond) {
 			//	cout << "pixel: " << irow << "," << icol << " (" << iindex << ")" << endl;

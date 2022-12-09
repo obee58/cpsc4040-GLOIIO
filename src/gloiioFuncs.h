@@ -13,39 +13,44 @@
 using namespace std;
 OIIO_NAMESPACE_USING;
 
-//assumed maximum value of pixel data - don't touch it kiddo
+//assumed channel data sizes and maximum uint value; don't touch unless image formats go crazy in the future
 #define MAX_VAL 255
+typedef unsigned char ch_uint;
+//typedef double ch_float; //kind of unnecessary
+//maximum filesize in bytes before readRaw cuts you off
+#define RAW_MAX 1048576 //1 mebibyte
 //preprocess macros aka math shorthand
-#define percentOf(a,max) ((double)(a)/(max))
+#define percentOf(a,max) ((double)(a)/(max)) //ex. 3 is 6% of 50, finds 6%
 #define contigIndex(row,col,wid) (((row)*(wid))+(col)) //converts row & column into 1d array index
-#define maximum(x,y,z) ((x) > (y)? ((x) > (z)? (x) : (z)) : ((y) > (z)? (y) : (z)))
-#define minimum(x,y,z) ((x) < (y)? ((x) < (z)? (x) : (z)) : ((y) < (z)? (y) : (z)))
+#define maximum(x,y,z) ((x) > (y)? ((x) > (z)? (x) : (z)) : ((y) > (z)? (y) : (z))) //triple max
+#define minimum(x,y,z) ((x) < (y)? ((x) < (z)? (x) : (z)) : ((y) < (z)? (y) : (z))) //triple min
 
-//struct that holds RGBA 4-tuple of chars
+//struct that holds RGBA 4-tuple of uints
 typedef struct pixel_rgba_t {
-	unsigned char red, green, blue, alpha;
+	ch_uint red, green, blue, alpha;
 } pxRGBA;
-//struct that holds RGB 3-tuple of chars
+//struct that holds RGB 3-tuple of uints
 typedef struct pixel_rgb_t {
-	unsigned char red, green, blue;
+	ch_uint red, green, blue;
 } pxRGB;
-//struct that holds HSV 3-tuple of doubles
+//struct that holds HSV 3-tuple of floats
 typedef struct pixel_hsv_t {
 	double hue, saturation, value;
 } pxHSV;
-//struct that holds RGBA 4-tuple of doubles (0~1)
+//struct that holds RGBA 4-tuple of floats (0~1)
 typedef struct floating_rgba_t {
 	double red, green, blue, alpha;
 } flRGBA;
 
 //struct to tie image spec and pixels together
-typedef struct image_rgba_uint8_t {
+typedef struct image_rgba_uint_t {
+	bool raw; //true if is just junk, use for special handling
 	ImageSpec spec;
 	pxRGBA* pixels;
 } ImageRGBA;
 //struct representing .filt with calculated scale factor
 typedef struct convolve_filt_t {
-	int size; //NxN
+	int size; //size = N; filter is NxN matrix
 	double scale;
 	double* kernel;
 } RawFilter;
@@ -55,9 +60,10 @@ void discardImage(ImageRGBA);
 void discardRawFilter(RawFilter);
 int clampInt(int,int,int);
 double clampDouble(double,double,double);
+ch_uint overwriteBits(int, ch_uint, ch_uint);
 //type conversion & struct creation functions
-pxRGB linkRGB(unsigned char,unsigned char,unsigned char);
-pxRGBA linkRGBA(unsigned char,unsigned char,unsigned char,unsigned char);
+pxRGB linkRGB(ch_uint,ch_uint,ch_uint);
+pxRGBA linkRGBA(ch_uint,ch_uint,ch_uint,ch_uint);
 pxHSV linkHSV(double,double,double);
 flRGBA percentify(pxRGBA);
 pxRGBA premult(pxRGBA);
@@ -66,6 +72,7 @@ pxHSV RGBAtoHSV(pxRGBA);
 ImageRGBA cloneImage(ImageRGBA);
 //i/o functions
 ImageRGBA readImage(string);
+ImageRGBA readRaw(string);
 void writeImage(string, ImageRGBA);
 RawFilter readFilter(string);
 //manipulation functions
