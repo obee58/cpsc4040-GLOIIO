@@ -53,16 +53,18 @@ static vector<StenoImage> imageCache; //list of read images for multi-image view
 static int imageIndex = 0; //current index in vector to attempt to load (left/right arrows)
 static bool opMode = false; //false = encode, true = decode (yes it's obtuse)
 static string outstr; //current output path target
+static double scaleX = 0; //0 = auto
+static double scaleY = 0;
+static int bits = 3; //default to 3, max hardcoded to 8
 //selection memory, set to -1 to deselect
 static int selTarget = -1; //cover if encode
 static int selSecret = -1;
-static int selOutput = -1;
-
+static int selOutput = -1; //only for display
 
 /** PROCESSING & HELPER FUNCTIONS **/
 //quick check if displaying image at this index is ok
-bool validIndex(int) {
-	if (imageIndex >= CACHE_COUNT || imageIndex >= imageCache.size()) {
+bool validIndex(int index) {
+	if (index < 0 || index >= CACHE_COUNT || index >= imageCache.size()) {
 		return false;
 	}
 	return true;
@@ -126,9 +128,7 @@ void refitWindow() {
    Keyboard Callback Routine
    This routine is called every time a key is pressed on the keyboard
 */
-void handleKey(unsigned char key, int x, int y){
-	string fn;
-
+void handleKey(unsigned char key, int x, int y) {
 	//handle jump number keys less awfully
 	if (isdigit(key)) {
 		keystr = string(key);
@@ -136,13 +136,12 @@ void handleKey(unsigned char key, int x, int y){
 		if (num == 0) { num = 10; } //0 goes to 10th position
 		if (validIndex(num-1)) {
 			imageIndex = num-1;
-			cout << "jumped to slot " << num << endl;
+			cout << "<i> jumped to slot " << num << endl;
 		}
-		
+		return;
 	}
 
 	switch(key) {
-		//TODO so many keys...
 		//misc commands
 		case '`': //refit
 		case '~':
@@ -150,21 +149,42 @@ void handleKey(unsigned char key, int x, int y){
 			break;
 
 		//I/O commands
-		case 8: //backspace; delete from cache TODO
-			//delete[] and vector erase
+		case 8: //backspace; delete from cache
+			StenoImage trash = imageCache[imageIndex];
+			if (trash.isRaw) {
+				delete[] trash.data;
+			}
+			else {
+				delete[] trash.image;
+			}
+
+			imageCache.erase(imageCache.begin()+imageIndex);
 			//decrement all selection indices after current one
+			if (imageIndex < selTarget) { selTarget--; }
+			if (imageIndex < selOutput) { selOutput--; }
+			if (imageIndex < selSecret) { selSecret--; }
+			cout << "<i> deleted image " << imageIndex << endl;
 			break;
 		
 		case 'r': //read
 		case 'R':
+			string fn;
 			cout << "enter input filename: ";
 			cin >> fn;
 			try {
-				//TODO decide when to use raw input mode
 				StenoImage newimg;
-				newimg.image = readImage(fn);
-				newimg.isRaw = false;
-				newimg.select = SEL_NONE;
+				if (glutGetModifiers() == GLUT_ACTIVE_SHIFT) {
+					//load file data no matter what
+					cout << "<i> reading as raw data" << endl;
+					newimg.isRaw = true;
+					newimg.data = readRaw(fn);
+				}
+				else {
+					//load image with OIIO
+					newimg.isRaw = false;
+					newimg.image = readImage(fn);
+				}
+				
 				if (imageCache.size() >= CACHE_COUNT) {
 					//TODO warn and prompt for replacing current index
 				}
@@ -191,32 +211,92 @@ void handleKey(unsigned char key, int x, int y){
 		case 'Z':
 			opMode = !opMode;
 			if (opMode) {
-				cout << "decode mode" << endl;
+				cout << "<i> decoding mode" << endl;
 			}
 			else {
-				cout << "encode mode" << endl;
+				cout << "<i> encoding mode" << endl;
 			}
 			break;
 
 		case 'x': //select cover/target
 		case 'X':
-			selTarget = imageIndex;
+			if (imageCache[imageIndex].isRaw) {
+				cout << "<x> cover image cannot be raw" << endl;
+			}
+			else {
+				selTarget = imageIndex;
+				if (imageIndex == selSecret) { selSecret = -1; }
+			}
 			break;
 
 		case 'c': //select secret
 		case 'C':
-			if (opMode) {
+			if (!opMode) {
 				selSecret = imageIndex;
+				if (imageIndex == selTarget) { selTarget = -1; }
 			}
 			break;
 		
-		//settings commands TODO
+		//settings commands
 		case 'a': //scale secret before encoding
 		case 'A':
+			if (validIndex(selSecret)) {
+				if (imageCache[selSecret].isRaw) {
+					cout << "<x> raw data secrets cannot be scaled" << endl;
+					break;
+				}
+				else if (glutGetModifiers() == GLUT_ACTIVE_SHIFT) { 
+					cout << "enter secret horizontal scale factor: ";
+					cin >> scaleX;
+					cout << "enter secret vertical scale factor: ";
+					cin >> scaleY;
+				}
+				else {
+					cout << "enter secret scale factor (0 to reset): ";
+					cin >> scaleX;
+					scaleY = scaleX;
+				}
+
+				if (scaleX <= 0 || scaleY <= 0) {
+					cout << "<i> scaling disabled" << endl;
+					break;
+				}
+				int resultX = imageCache[selSecret].image.spec.width*scaleX;
+				int resultY = imageCache[selSecret].image.spec.height*scaleY;
+				cout << "secret will be " << resultX << "x" << resultY << " when encoded" << endl;
+				if (validIndex(selCover)) {
+					int covX = imageCache[selCover].image.spec.width;
+					int covY = imageCache[selCover].image.spec.height;
+					if (resultX > covX || resultY > covY) {
+						cout << "<!> secret will not fit in the current cover image (" << covX << "x" << covY << ")" << endl;
+					}
+				}
+			}
 			break;
 
-		//confirm and perform operation TODO major
+		case 's': //set number of bits to hide in or extract
+		case 'S':
+			cout << "enter # of bits used by secret: ";
+			cin >> bits;
+			if (bits <= 0 || bits >= 8) {
+				cout << "<x> invalid # of bits, defaulting to 3" << endl;
+				bits = 3;
+			}
+			break;
+
+		case 'd': //switch channels used for hiding (grayscale mode)
+		case 'D':
+			//TODO pain in the ass
+			break;
+
+		case 'f': //enable/disable compression of secret
+		case 'F':
+			//TODO lowest priority i'm most likely not adding this
+			break;
+
+		//confirm and perform operation
 		case '\n':
+			//TODO big prints big checks
 			break;
 
 		//exit
@@ -232,18 +312,21 @@ void handleKey(unsigned char key, int x, int y){
 
 void specialKey(int key, int x, int y) {
 	switch(key) {
+		case GLUT_KEY_F1:
+			//TODO holy mother of help text
+			break;
 		case GLUT_KEY_LEFT:
 			//cout << "was displaying image " << imageIndex+1 << " of " << imageCache.size() << endl;
 			if (imageIndex > 0) {
 				imageIndex--;
-				cout << "image " << imageIndex+1 << " of " << imageCache.size() << endl;
+				cout << "<i> image " << imageIndex+1 << " of " << imageCache.size() << endl;
 			}
 			break;
 		case GLUT_KEY_RIGHT:
 			//cout << "was displaying image " << imageIndex+1 << " of " << imageCache.size() << endl;
 			if (imageIndex < imageCache.size()-1 && imageCache.size() > 0) {
 				imageIndex++;
-				cout << "image " << imageIndex+1 << " of " << imageCache.size() << endl;
+				cout << "<i> image " << imageIndex+1 << " of " << imageCache.size() << endl;
 			}
 			break;
 		default:
