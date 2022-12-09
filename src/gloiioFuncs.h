@@ -83,6 +83,7 @@ ImageRGBA cloneImage(ImageRGBA);
 ImageRGBA readImage(string);
 ImageRaw readRaw(string);
 void writeImage(string, ImageRGBA);
+void writeRaw(string, ImageRaw);
 RawFilter readFilter(string);
 //manipulation functions
 void invert(ImageRGBA);
@@ -94,6 +95,6 @@ ImageRGBA scale(ImageRGBA, double, double); //overall scaling factor (main code 
 ImageRGBA scale(ImageRGBA, int, int); //exact target size
 //maybe loose translation function to place small secret at specific position?
 ImageRGBA encode(ImageRGBA, StenoImage, int); //cover, secret, bits
-StenoImage decode(ImageRGBA, int); //target, bits
+ImageRGBA decode(ImageRGBA, int); //target, bits
 
 #endif

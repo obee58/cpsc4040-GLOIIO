@@ -198,8 +198,9 @@ ImageRGBA readImage(string filename) {
 	dimensions are not defined, draw() & steno functions apply a sort of "word wrap"
 	THROWS EXCEPTION ON IO FAIL - place in trycatch block if called outside of init */
 ImageRaw readRaw(string filename) {
-	fstream in = open(filename, fstream::in);
-	if (ios::fail() || !in) {
+	fstream in;
+	in.open(filename, fstream::in);
+	if (in.fail() || !in) {
 		std::cerr << "could not open input file! " << endl;
 		//cancel routine
 		throw runtime_error("raw input fail");
@@ -208,7 +209,7 @@ ImageRaw readRaw(string filename) {
 	//find size of file (OS-agnostic i think)
 	in.seekg(0, ios::end);
 	unsigned int filesize = in.tellg(); //please do not give this program a 4.294 GB file
-	if (filesize > RAW_MAX || ios::fail()) {
+	if (filesize > RAW_MAX || in.fail()) {
 		std::cerr << "input file too large! got" << filesize << "bytes, limit is " << RAW_MAX << endl;
 		//cancel routine
 		throw runtime_error("raw size fail");
@@ -222,10 +223,11 @@ ImageRaw readRaw(string filename) {
 
 	//read by byte
 	for (unsigned int i=0; i<filesize; i++) {
-		if (!in.get(image.array[i])) { break; } //TODO maybe clean error
+		image.array[i] = in.get();
+		if (in.eof() || !in) { break; } //TODO maybe clean error
 	}
 
-	close(in);
+	in.close();
 	return image;
 }
 
@@ -278,6 +280,24 @@ void writeImage(string filename, ImageRGBA image){
 	}
 }
 
+/*	writes non-image data to a file without OIIO */
+void writeRaw(string filename, ImageRaw data) {
+	//TODO more fstream stuff
+	fstream out;
+	out.open(filename, fstream::out);
+	if (out.fail() || !out) {
+		std::cerr << "could not open output file! " << endl;
+		//cancel routine
+		return;
+	}
+
+	//write by byte
+	for (unsigned int i=0; i<data.size; i++) {
+		out.put(data.array[i]);
+		if (!out) { break; } //IDK
+	}
+	out.close();
+}
 
 /*  reads in filter data from specified filename as RawFilter
 	returns a RawFilter for the filtCache if successful 
@@ -525,8 +545,8 @@ ImageRGBA scale(ImageRGBA image, double factorx, double factory) {
 	pxRGBA* output = new pxRGBA[txRes*tyRes];
 
 	/* apply inverse map */
-	for (int iny=0; iny<boundsy; y++) {
-		for (int inx=0; inx<boundsx; x++) {
+	for (int iny=0; iny<tyRes; iny++) {
+		for (int inx=0; inx<txRes; inx++) {
 			//TODO reference okwarp to make sure this logic is correct
 			//definitions of "input" and "output" in inverse map are really confusing!!!
 
@@ -540,7 +560,7 @@ ImageRGBA scale(ImageRGBA image, double factorx, double factory) {
 			int inu = round(u);
 			int inv = round(v);
 			//apply warp by copying pixel
-			output[contigIndex(iny,inx,boundsx)] = image.pixels[contigIndex(inv,inu,xr)];
+			output[contigIndex(iny,inx,txRes)] = image.pixels[contigIndex(inv,inu,oxRes)];
 		}
 	}
 
@@ -548,8 +568,8 @@ ImageRGBA scale(ImageRGBA image, double factorx, double factory) {
 	ImageRGBA result;
 	result.pixels = output;
 	result.spec = image.spec; //i can only pray that this works fine for writing to file
-	result.spec.height = boundsy;
-	result.spec.width = boundsx;
+	result.spec.height = tyRes;
+	result.spec.width = txRes;
 	return result;
 }
 

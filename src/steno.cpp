@@ -41,12 +41,12 @@ OIIO_NAMESPACE_USING
 //max allowed images/files in cache
 #define CACHE_COUNT 10
 //background colors
-#define COLOR_EMPTY 0.2,0.2,0.2,1
+#define COLOR_EMPTY 0.1,0.1,0.1,1
 #define COLOR_NONE 0,0,0,1
-#define COLOR_COVER 0,0,0.5,1
-#define COLOR_SECRET 0,0.5,0,1
-#define COLOR_DECODE 0.5,0,0,1
-#define COLOR_OUTPUT 0.5,0.3,0,1
+#define COLOR_COVER 0,0,0.3,1
+#define COLOR_SECRET 0,0.3,0,1
+#define COLOR_DECODE 0.3,0,0,1
+#define COLOR_OUTPUT 0.4,0.2,0,1
 
 /** CONTROL & GLOBAL STATICS **/
 static vector<StenoImage> imageCache; //list of read images for multi-image viewing mode
@@ -92,18 +92,18 @@ void draw(){
 		//make sure settings are correct
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1); //Parrot Fixer 2000
 		glRasterPos2i(0,0); //draw from bottom left
-		if (item.isRaw) {
+		if (item->isRaw) {
 			//TODO determine viewport size & ideal wrap width
 			int wrapWidth = 100;
 			glPixelZoom(1.0,1.0);
-			glDrawPixels(item->data.size/wrapWidth,wrapWidth,GL_RGBA,GL_UNSIGNED_BYTE,item->data.array[0]);
+			glDrawPixels(item->data.size/wrapWidth,wrapWidth,GL_RGBA,GL_UNSIGNED_BYTE,&(item->data.array[0]));
 		}
 		else {
 			//draw based on image spec
-			ImageSpec* spec = &item.image.spec;
+			ImageSpec* spec = &(item->image.spec);
 			//TODO determine viewport size & zoom
 			glPixelZoom(1.0,1.0);
-			glDrawPixels(spec->width,spec->height,GL_RGBA,GL_UNSIGNED_BYTE,item->image.pixels[0]);
+			glDrawPixels(spec->width,spec->height,GL_RGBA,GL_UNSIGNED_BYTE,&(item->image.pixels[0]));
 		}
 		glDisable(GL_BLEND);
 	}
@@ -130,8 +130,10 @@ void refitWindow() {
 */
 void handleKey(unsigned char key, int x, int y) {
 	//handle jump number keys less awfully
+	//TODO this currently explodes because stoi no like
 	if (isdigit(key)) {
-		keystr = string(key);
+		string keystr;
+		keystr = key;
 		int num = stoi(keystr);
 		if (num == 0) { num = 10; } //0 goes to 10th position
 		if (validIndex(num-1)) {
@@ -141,6 +143,9 @@ void handleKey(unsigned char key, int x, int y) {
 		return;
 	}
 
+	string fn; //for R case
+	StenoImage newimg; //for R case
+	StenoImage trash; //for backspace case
 	switch(key) {
 		//misc commands
 		case '`': //refit
@@ -150,15 +155,20 @@ void handleKey(unsigned char key, int x, int y) {
 
 		//I/O commands
 		case 8: //backspace; delete from cache
-			StenoImage trash = imageCache[imageIndex];
+			if (!validIndex(imageIndex)) {break;}
+			trash = imageCache[imageIndex];
 			if (trash.isRaw) {
-				delete[] trash.data;
+				delete[] trash.data.array;
 			}
 			else {
-				delete[] trash.image;
+				delete[] trash.image.pixels;
 			}
 
 			imageCache.erase(imageCache.begin()+imageIndex);
+			//deselect this position
+			if (imageIndex == selTarget) { selTarget = -1; }
+			if (imageIndex == selOutput) { selOutput = -1; }
+			if (imageIndex == selSecret) { selSecret = -1; }
 			//decrement all selection indices after current one
 			if (imageIndex < selTarget) { selTarget--; }
 			if (imageIndex < selOutput) { selOutput--; }
@@ -168,11 +178,9 @@ void handleKey(unsigned char key, int x, int y) {
 		
 		case 'r': //read
 		case 'R':
-			string fn;
 			cout << "enter input filename: ";
 			cin >> fn;
 			try {
-				StenoImage newimg;
 				if (glutGetModifiers() == GLUT_ACTIVE_SHIFT) {
 					//load file data no matter what
 					cout << "<i> reading as raw data" << endl;
@@ -198,12 +206,18 @@ void handleKey(unsigned char key, int x, int y) {
 		
 		case 'w': //write
 		case 'W':
+			if (!validIndex(imageIndex)) {break;}
 			if (outstr.empty() || glutGetModifiers() == GLUT_ACTIVE_SHIFT) {
 				//let user reset output (save as)
 				cout << "enter output filename: ";
 				cin >> outstr;
 			}
-			writeImage(outstr, imageCache[imageIndex]);
+			if (imageCache[imageIndex].isRaw) {
+				writeRaw(outstr, imageCache[imageIndex].data);
+			}
+			else {
+				writeImage(outstr, imageCache[imageIndex].image);
+			}
 			break;
 
 		//selection commands
@@ -220,6 +234,7 @@ void handleKey(unsigned char key, int x, int y) {
 
 		case 'x': //select cover/target
 		case 'X':
+			if (!validIndex(imageIndex)) {break;}
 			if (imageCache[imageIndex].isRaw) {
 				cout << "<x> cover image cannot be raw" << endl;
 			}
@@ -231,6 +246,7 @@ void handleKey(unsigned char key, int x, int y) {
 
 		case 'c': //select secret
 		case 'C':
+			if (!validIndex(imageIndex)) {break;}
 			if (!opMode) {
 				selSecret = imageIndex;
 				if (imageIndex == selTarget) { selTarget = -1; }
@@ -264,9 +280,9 @@ void handleKey(unsigned char key, int x, int y) {
 				int resultX = imageCache[selSecret].image.spec.width*scaleX;
 				int resultY = imageCache[selSecret].image.spec.height*scaleY;
 				cout << "secret will be " << resultX << "x" << resultY << " when encoded" << endl;
-				if (validIndex(selCover)) {
-					int covX = imageCache[selCover].image.spec.width;
-					int covY = imageCache[selCover].image.spec.height;
+				if (validIndex(selTarget)) {
+					int covX = imageCache[selTarget].image.spec.width;
+					int covY = imageCache[selTarget].image.spec.height;
 					if (resultX > covX || resultY > covY) {
 						cout << "<!> secret will not fit in the current cover image (" << covX << "x" << covY << ")" << endl;
 					}
