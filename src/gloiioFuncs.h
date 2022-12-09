@@ -16,7 +16,6 @@ OIIO_NAMESPACE_USING;
 //assumed channel data sizes and maximum uint value; don't touch unless image formats go crazy in the future
 #define MAX_VAL 255
 typedef unsigned char ch_uint;
-//typedef double ch_float; //kind of unnecessary
 //maximum filesize in bytes before readRaw cuts you off
 #define RAW_MAX 1048576 //1 mebibyte
 //preprocess macros aka math shorthand
@@ -44,16 +43,26 @@ typedef struct floating_rgba_t {
 
 //struct to tie image spec and pixels together
 typedef struct image_rgba_uint_t {
-	bool raw; //true if is just junk, use for special handling
 	ImageSpec spec;
 	pxRGBA* pixels;
 } ImageRGBA;
+//struct to tie raw data array and its size together
+typedef struct image_raw_uint_t {
+	unsigned int size;
+	ch_uint* array;
+} ImageRaw;
 //struct representing .filt with calculated scale factor
 typedef struct convolve_filt_t {
 	int size; //size = N; filter is NxN matrix
 	double scale;
 	double* kernel;
 } RawFilter;
+//psuedo-union for raw and rbga
+typedef struct steno_idc_image_t {
+	ImageRaw data;
+	ImageRGBA image;
+	bool isRaw;
+} StenoImage;
 
 //math & shorthand functions
 void discardImage(ImageRGBA);
@@ -72,7 +81,7 @@ pxHSV RGBAtoHSV(pxRGBA);
 ImageRGBA cloneImage(ImageRGBA);
 //i/o functions
 ImageRGBA readImage(string);
-ImageRGBA readRaw(string);
+ImageRaw readRaw(string);
 void writeImage(string, ImageRGBA);
 RawFilter readFilter(string);
 //manipulation functions
@@ -83,5 +92,8 @@ void compose(ImageRGBA, ImageRGBA);
 void convolve(RawFilter, ImageRGBA);
 ImageRGBA scale(ImageRGBA, double, double); //overall scaling factor (main code goes in here)
 ImageRGBA scale(ImageRGBA, int, int); //exact target size
+//maybe loose translation function to place small secret at specific position?
+ImageRGBA encode(ImageRGBA, StenoImage, int); //cover, secret, bits
+StenoImage decode(ImageRGBA, int); //target, bits
 
 #endif

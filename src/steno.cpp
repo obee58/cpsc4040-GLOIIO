@@ -21,6 +21,7 @@
 #include <OpenImageIO/imageio.h>
 #include <iostream>
 #include <string>
+#include <cctype>
 #include <exception>
 
 #ifdef __APPLE__
@@ -37,93 +38,188 @@ OIIO_NAMESPACE_USING
 //default window dimensions
 #define DEFAULT_WIDTH 600	
 #define DEFAULT_HEIGHT 600
+//max allowed images/files in cache
+#define CACHE_COUNT 10
+//background colors
+#define COLOR_EMPTY 0.2,0.2,0.2,1
+#define COLOR_NONE 0,0,0,1
+#define COLOR_COVER 0,0,0.5,1
+#define COLOR_SECRET 0,0.5,0,1
+#define COLOR_DECODE 0.5,0,0,1
+#define COLOR_OUTPUT 0.5,0.3,0,1
 
 /** CONTROL & GLOBAL STATICS **/
-//list of read images for multi-image viewing mode
-static vector<ImageRGBA> imageCache;
-//current index in vector to attempt to load (left/right arrows)
-static int imageIndex = 0;
-//noisify chance (1/noiseDenom to replace with black pixel)
-static int noiseDenom = 5;
-//frame counter, currently only used for better random generation
-static int drawCount = 0;
+static vector<StenoImage> imageCache; //list of read images for multi-image viewing mode
+static int imageIndex = 0; //current index in vector to attempt to load (left/right arrows)
+static bool opMode = false; //false = encode, true = decode (yes it's obtuse)
+static string outstr; //current output path target
+//selection memory, set to -1 to deselect
+static int selTarget = -1; //cover if encode
+static int selSecret = -1;
+static int selOutput = -1;
 
+
+/** PROCESSING & HELPER FUNCTIONS **/
+//quick check if displaying image at this index is ok
+bool validIndex(int) {
+	if (imageIndex >= CACHE_COUNT || imageIndex >= imageCache.size()) {
+		return false;
+	}
+	return true;
+}
 
 /** OPENGL FUNCTIONS **/
 /* main display callback: displays the image of current index from imageCache. 
 if no images are loaded, only draws a black background */
 void draw(){
-	//clear and make black background
-	glClearColor(0,0,0,1);
-	glClear(GL_COLOR_BUFFER_BIT);
 	if (imageCache.size() > 0) {
-		//display alphamasked image properly via blending
+		StenoImage* item = &imageCache[imageIndex];
+		//clear and make background based on selection mode
+		if (imageIndex == selTarget) {
+			if (opMode) { glClearColor(COLOR_DECODE); }
+			else { glClearColor(COLOR_COVER); }
+		}
+		else if (imageIndex == selSecret && !opMode) { glClearColor(COLOR_SECRET); }
+		else if (imageIndex == selOutput) { glClearColor(COLOR_OUTPUT); }
+		else { glClearColor(COLOR_NONE); }
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		//display transparency properly via blending
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		glEnable(GL_BLEND);
-		//get image spec & current window size
-		ImageSpec* spec = &imageCache[imageIndex].spec;
-		glPixelZoom(1.0,1.0);
+		//make sure settings are correct
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1); //Parrot Fixer 2000
 		glRasterPos2i(0,0); //draw from bottom left
-		//draw image
-		glDrawPixels(spec->width,spec->height,GL_RGBA,GL_UNSIGNED_BYTE,&imageCache[imageIndex].pixels[0]);
+		if (item.isRaw) {
+			//TODO determine viewport size & ideal wrap width
+			int wrapWidth = 100;
+			glPixelZoom(1.0,1.0);
+			glDrawPixels(item->data.size/wrapWidth,wrapWidth,GL_RGBA,GL_UNSIGNED_BYTE,item->data.array[0]);
+		}
+		else {
+			//draw based on image spec
+			ImageSpec* spec = &item.image.spec;
+			//TODO determine viewport size & zoom
+			glPixelZoom(1.0,1.0);
+			glDrawPixels(spec->width,spec->height,GL_RGBA,GL_UNSIGNED_BYTE,item->image.pixels[0]);
+		}
 		glDisable(GL_BLEND);
 	}
-	//increment draws count
-	drawCount++;
-	//flush to viewport
-	glFlush();
+	else {
+		//clear and make gray background
+		glClearColor(COLOR_EMPTY);
+		glClear(GL_COLOR_BUFFER_BIT);
+	}
+	
+	glFlush(); //flush to viewport
 }
 
-/* resets the window size to fit the current image exactly */
+/* resets the window size to fit the current image better */
 void refitWindow() {
 	if (imageCache.size() > 0) {
-		ImageSpec* spec = &imageCache[imageIndex].spec;
-		glutReshapeWindow(spec->width, spec->height);
+		ImageSpec* spec = &imageCache[imageIndex].image.spec;
+		glutReshapeWindow(spec->width*1.1, spec->height*1.1);
 	}
 }
 
 /*
-   Keyboard Callback Routine: 'c' cycle through colors, 'q' or ESC quit,
-   'w' write the framebuffer to a file.
+   Keyboard Callback Routine
    This routine is called every time a key is pressed on the keyboard
 */
 void handleKey(unsigned char key, int x, int y){
 	string fn;
-	switch(key){
-		case 'z':
-		case 'Z':
+
+	//handle jump number keys less awfully
+	if (isdigit(key)) {
+		keystr = string(key);
+		int num = stoi(keystr);
+		if (num == 0) { num = 10; } //0 goes to 10th position
+		if (validIndex(num-1)) {
+			imageIndex = num-1;
+			cout << "jumped to slot " << num << endl;
+		}
+		
+	}
+
+	switch(key) {
+		//TODO so many keys...
+		//misc commands
+		case '`': //refit
+		case '~':
 			refitWindow();
 			break;
 
-		case 'r':
+		//I/O commands
+		case 8: //backspace; delete from cache TODO
+			//delete[] and vector erase
+			//decrement all selection indices after current one
+			break;
+		
+		case 'r': //read
 		case 'R':
 			cout << "enter input filename: ";
 			cin >> fn;
 			try {
-				imageCache.push_back(readImage(fn));
-				imageIndex = imageCache.size()-1;
+				//TODO decide when to use raw input mode
+				StenoImage newimg;
+				newimg.image = readImage(fn);
+				newimg.isRaw = false;
+				newimg.select = SEL_NONE;
+				if (imageCache.size() >= CACHE_COUNT) {
+					//TODO warn and prompt for replacing current index
+				}
+				else {
+					imageCache.push_back(newimg);
+					imageIndex = imageCache.size()-1;
+				}
 			}
-			catch (exception &e) {} //(error message is inside readImage already)
+			catch (exception &e) {}
 			break;
 		
-		case 'w':
+		case 'w': //write
 		case 'W':
-			cout << "enter output filename: ";
-			cin >> fn;
-			writeImage(fn, imageCache[imageIndex]);
+			if (outstr.empty() || glutGetModifiers() == GLUT_ACTIVE_SHIFT) {
+				//let user reset output (save as)
+				cout << "enter output filename: ";
+				cin >> outstr;
+			}
+			writeImage(outstr, imageCache[imageIndex]);
 			break;
 
-		case 'i':
-		case 'I':
-			invert(imageCache[imageIndex]);
+		//selection commands
+		case 'z': //swap mode
+		case 'Z':
+			opMode = !opMode;
+			if (opMode) {
+				cout << "decode mode" << endl;
+			}
+			else {
+				cout << "encode mode" << endl;
+			}
+			break;
+
+		case 'x': //select cover/target
+		case 'X':
+			selTarget = imageIndex;
+			break;
+
+		case 'c': //select secret
+		case 'C':
+			if (opMode) {
+				selSecret = imageIndex;
+			}
 			break;
 		
-		case 'n':
-		case 'N':
-			noisify(imageCache[imageIndex], noiseDenom, drawCount);
+		//settings commands TODO
+		case 'a': //scale secret before encoding
+		case 'A':
 			break;
-		
+
+		//confirm and perform operation TODO major
+		case '\n':
+			break;
+
+		//exit
 		case 'q':		// q - quit
 		case 'Q':
 		case 27:		// esc - quit
@@ -181,12 +277,7 @@ void timer( int value )
 /* main control method that sets up the GL environment
 	and handles command line arguments */
 int main(int argc, char* argv[]){
-	//read arguments as filenames and attempt to read requested files
-	for (int i=1; i<argc; i++) {
-		imageCache.push_back(readImage(string(argv[i])));
-	}
-	//always display first image on load
-	imageIndex = 0;
+	//TODO init and cmd handling
 
 	// start up the glut utilities
 	glutInit(&argc, argv);
@@ -194,7 +285,7 @@ int main(int argc, char* argv[]){
 	// create the graphics window, giving width, height, and title text
 	glutInitDisplayMode(GLUT_SINGLE | GLUT_RGBA);
 	glutInitWindowSize(DEFAULT_WIDTH, DEFAULT_HEIGHT);
-	glutCreateWindow("Get the Picture");
+	glutCreateWindow("steno");
 
 	// set up the callback routines to be called when glutMainLoop() detects
 	// an event

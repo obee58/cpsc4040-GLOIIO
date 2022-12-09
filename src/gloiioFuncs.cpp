@@ -23,6 +23,12 @@ double clampDouble(double x, double min, double max) {
 	return x;
 }
 
+/* clean replacement of lower bits */
+ch_uint overwriteBits(int bits, ch_uint upper, ch_uint lower) {
+	//TODO powers of 2?
+	return 0;
+}
+
 /* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
 pxRGB linkRGB(ch_uint r, ch_uint g, ch_uint b) {
 	pxRGB px;
@@ -191,7 +197,7 @@ ImageRGBA readImage(string filename) {
 	does not actually use OIIO, but creates a partial ImageSpec for later handling
 	dimensions are not defined, draw() & steno functions apply a sort of "word wrap"
 	THROWS EXCEPTION ON IO FAIL - place in trycatch block if called outside of init */
-ImageRGBA readRaw(string filename) {
+ImageRaw readRaw(string filename) {
 	fstream in = open(filename, fstream::in);
 	if (ios::fail() || !in) {
 		std::cerr << "could not open input file! " << endl;
@@ -209,33 +215,15 @@ ImageRGBA readRaw(string filename) {
 	}
 	in.seekg(0, ios::beg);
 
-	//define struct metadata
-	ImageRGBA image;
-	image.spec.nchannels = 4;
+	//declare memory to store data in
+	ImageRaw image;
+	image.array = new ch_uint[filesize];
+	image.size = filesize;
 
-	//declare pixel value memory to store data in
-	pxRGBA* data = new pxRGBA[filesize/4];
-	//bad code
+	//read by byte
 	for (unsigned int i=0; i<filesize; i++) {
-		ch_uint raw;
-		if (!in.get(raw)) { break; } //TODO maybe clean error
-		switch(filesize%4) {
-			case 0:
-				data[i/4].red = raw;
-				break;
-			case 1:
-				data[i/4].green = raw;
-				break;
-			case 2:
-				data[i/4].blue = raw;
-				break;
-			case 3:
-				data[i/4].alpha = raw;
-				break;
-			default: break; //what
-		}
+		if (!in.get(image.array[i])) { break; } //TODO maybe clean error
 	}
-	image.pixels = data;
 
 	close(in);
 	return image;
@@ -572,3 +560,14 @@ ImageRGBA scale(ImageRGBA image, int txRes, int tyRes) {
 	return scale(image, factorx, factory);
 }
 
+/* encodes a secret image in the last few bits of a cover image */
+ImageRGBA encode(ImageRGBA cover, StenoImage secret, int bits) {
+	//TODO major
+	return cover;
+}
+
+/* decodes a secret image by removing all but the last few bits of it and amplifying them */
+ImageRGBA decode(ImageRGBA target, int bits) {
+	//TODO major
+	return target;
+}
