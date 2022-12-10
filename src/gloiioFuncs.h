@@ -94,7 +94,6 @@ void chromaKey(ImageRGBA, pxHSV, double, double, double);
 void compose(ImageRGBA, ImageRGBA);
 void convolve(RawFilter, ImageRGBA);
 ImageRGBA scale(ImageRGBA, double, double); //overall scaling factor (main code goes in here)
-ImageRGBA scale(ImageRGBA, int, int); //exact target size
 //maybe loose translation function to place small secret at specific position?
 ImageRGBA encode(ImageRGBA, StenoImage, int); //cover, secret, bits
 ImageRGBA decode(ImageRGBA, int); //target, bits

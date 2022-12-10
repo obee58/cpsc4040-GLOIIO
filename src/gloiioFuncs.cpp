@@ -575,13 +575,6 @@ ImageRGBA scale(ImageRGBA image, double factorx, double factory) {
 	return result;
 }
 
-/* handy override for scale factor auto-calculation from exact size */
-ImageRGBA scale(ImageRGBA image, int txRes, int tyRes) {
-	double factorx = (double)txRes/image.spec.width;
-	double factory = (double)tyRes/image.spec.height;
-	return scale(image, factorx, factory);
-}
-
 /* encodes a secret image in the last few bits of a cover image */
 ImageRGBA encode(ImageRGBA cover, StenoImage secret, int bits) {
 	//TODO major
