@@ -407,7 +407,7 @@ void timer( int value )
 
 /* main control method that sets up the GL environment
 	and handles command line arguments */
-int main(int argc, char* argv[]){
+int main(int argc, char* argv[]) {
 	if (argc >= 2) {
 		cout << argv[1] << endl;
 		if (argv[1] == "instant") {

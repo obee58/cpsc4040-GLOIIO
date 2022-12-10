@@ -23,10 +23,19 @@ double clampDouble(double x, double min, double max) {
 	return x;
 }
 
+/* approximate value in given number of bits */
+ch_uint stepBits(int inbits, int outbits, ch_uint value) {
+	double outmax = pow(2,outbits)-1;
+	double inmax = pow(2,inbits)-1;
+	return (ch_uint)round((double)value*(outmax/inmax));
+}
 /* clean replacement of lower bits */
 ch_uint overwriteBits(int bits, ch_uint upper, ch_uint lower) {
-	//TODO powers of 2?
-	return 0;
+	ch_uint mask = (-1)<<bits;
+	upper &= mask;
+	lower &= ~mask;
+	upper |= lower;
+	return upper;
 }
 
 /* functions to quickly create pxRGB, pxRGBA, pxHSV,... from arbitrary values*/
@@ -124,7 +133,7 @@ pxHSV RGBAtoHSV(pxRGBA rgba) {
 /** PROCESSING FUNCTIONS **/
 /*  reads in image from specified filename as RGBA 8bit pixmap
 	returns an ImageRGBA if successful
-	THROWS EXCEPTION ON IO FAIL - place in trycatch block if called outside of init */
+	THROWS EXCEPTION ON IO FAIL - place in trycatch block */
 ImageRGBA readImage(string filename) {
 	std::unique_ptr<ImageInput> in = ImageInput::open(filename);
 	if (!in) {
@@ -196,7 +205,7 @@ ImageRGBA readImage(string filename) {
 /*	forcefully reads a file as an """image""" regardless of what it is
 	does not actually use OIIO, but creates a partial ImageSpec for later handling
 	dimensions are not defined, draw() & steno functions apply a sort of "word wrap"
-	THROWS EXCEPTION ON IO FAIL - place in trycatch block if called outside of init */
+	THROWS EXCEPTION ON IO FAIL - place in trycatch block */
 ImageRaw readRaw(string filename) {
 	fstream in;
 	in.open(filename, fstream::in);
@@ -301,7 +310,7 @@ void writeRaw(string filename, ImageRaw data) {
 
 /*  reads in filter data from specified filename as RawFilter
 	returns a RawFilter for the filtCache if successful 
-	THROWS EXCEPTION ON IO FAIL - place in trycatch block if called outside of init */
+	THROWS EXCEPTION ON IO FAIL - place in trycatch block */
 RawFilter readFilter(string filename) {
 	ifstream data(filename);
 	if (!data) {
@@ -575,10 +584,32 @@ ImageRGBA scale(ImageRGBA image, double factorx, double factory) {
 	return result;
 }
 
-/* encodes a secret image in the last few bits of a cover image */
-ImageRGBA encode(ImageRGBA cover, StenoImage secret, int bits) {
+/* compresses and encodes a secret image in the last few bits of a cover image 
+ * assumes secret dimensions are both <= cover dimensions */
+ImageRGBA encodeImage(ImageRGBA cover, ImageRGBA secret, int bits) {
+	int secretSize = secret.spec.width*secret.spec.height;
+	ImageRGBA result = cloneImage(cover);
+	for (int i=0; i<secretSize; i++) {
+		result.pixels[i].red = overwriteBits(bits, result.pixels[i].red, stepBits(bits, 8, secret.pixels[i].red));
+		result.pixels[i].green = overwriteBits(bits, result.pixels[i].green, stepBits(bits, 8, secret.pixels[i].green));
+		result.pixels[i].blue = overwriteBits(bits, result.pixels[i].blue, stepBits(bits, 8, secret.pixels[i].blue));
+		result.pixels[i].alpha = overwriteBits(bits, result.pixels[i].alpha, stepBits(bits, 8, secret.pixels[i].alpha));
+	}
+	return result;
+}
+
+/* encodes bytes of secret data in the last few bits of a cover image 
+ * assumes secret data total bits <= cover pixels * bits * 4 */
+ImageRGBA encodeData(ImageRGBA cover, ImageRaw secret, int bits) {
 	//TODO major
-	return cover;
+	int secretBits = secret.size*8;
+	int bitsWritten = 0;
+	ImageRGBA result = cloneImage(cover);
+	while (bitsWritten < secretBits) {
+		//TODO uh oh
+		//result.pixels[i].red = overwriteBits(bits, result.pixels[i].red, );
+	}
+	return result;
 }
 
 /* decodes a secret image by removing all but the last few bits of it and amplifying them */

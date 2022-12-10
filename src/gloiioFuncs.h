@@ -71,6 +71,7 @@ void discardImage(ImageRGBA);
 void discardRawFilter(RawFilter);
 int clampInt(int,int,int);
 double clampDouble(double,double,double);
+ch_uint stepBits(int, int, ch_uint);
 ch_uint overwriteBits(int, ch_uint, ch_uint);
 //type conversion & struct creation functions
 pxRGB linkRGB(ch_uint,ch_uint,ch_uint);
@@ -95,7 +96,8 @@ void compose(ImageRGBA, ImageRGBA);
 void convolve(RawFilter, ImageRGBA);
 ImageRGBA scale(ImageRGBA, double, double); //overall scaling factor (main code goes in here)
 //maybe loose translation function to place small secret at specific position?
-ImageRGBA encode(ImageRGBA, StenoImage, int); //cover, secret, bits
+ImageRGBA encodeImage(ImageRGBA, ImageRGBA, int); //cover, secret, bits
+ImageRGBA encodeData(ImageRGBA, ImageRaw, int);
 ImageRGBA decode(ImageRGBA, int); //target, bits
 
 #endif
