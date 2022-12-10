@@ -123,4 +123,34 @@ Additionally, the program currently uses a scale factor and clamping function to
 Edge calculation filters in general do not work too well with this version of the program.
 
 ## steno
-TODO
+**steno** is an advanced program for hiding secret information (images, data) in other, larger images.
+
+#### Controls
+steno has much more complicated controls due to its features. Most importantly, it uses a selection system to determine which images in its cache to operate on. The border around the displayed image quickly conveys the status of the image.
+
+- gray: empty
+- black: unselected
+- blue: encoding cover
+- green: encoding secret
+- red: decoding target
+- brown: most recent output
+
+General controls:
+- left/right: show previous/next image
+- number keys: jump to image
+- R: read from file
+- SHIFT+R: read from file as raw data
+- W: write to output file
+- SHIFT+W: redefine output file ("save as")
+- A: set scaling factor when encoding secret image
+- S: set bit depth when encoding/decoding secret data
+- SPACE/ENTER: perform operation
+- Q/ESC: quit program
+
+Encoding mode:
+- X: select cover image
+- C: select secret image/data
+
+Decoding mode:
+- X: select target image
+- C: toggle data decoding mode (experimental)

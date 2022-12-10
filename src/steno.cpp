@@ -464,8 +464,70 @@ void timer( int value )
 int main(int argc, char* argv[]) {
 	if (argc >= 2) {
 		cout << argv[1] << endl;
-		if (argv[1] == "instant") {
-			//TODO instant mode (last thing to add, options hard)
+		if (argv[1] == "instant" && argc >= 4) {
+			if (strcmp(argv[2],"encode") == 0) {
+				opMode = false;
+				//get cover image
+				StenoImage cover;
+				try {
+					cover.isRaw = false;
+					cover.image = readImage(argv[2]);
+				}
+				catch (exception &e) {
+					cerr << "could not read image " << argv[2] << endl;
+					exit(1);
+				}
+				imageCache.push_back(cover);
+				selTarget = imageCache.size()-1;
+
+				//get secret
+				StenoImage secret;
+				try {
+					secret.isRaw = false;
+					secret.image = readImage(argv[3]);
+				}
+				catch (exception &e) {
+					cout << "trying as raw data... ";
+					try {
+						secret.isRaw = true;
+						secret.data = readRaw(argv[3]);
+					}
+					catch (exception &e) {
+						cerr << "could not read file " << argv[3] << endl;
+						exit(1);
+					}
+					cout << endl;
+				}
+				imageCache.push_back(secret);
+				selSecret = imageCache.size()-1;
+
+				StenoImage result;
+				result.isRaw = false;
+				int covX = imageCache[selTarget].image.spec.width;
+				int covY = imageCache[selTarget].image.spec.height;
+				if (imageCache[selSecret].isRaw) {
+					if (imageCache[selSecret].data.size > covX*covY*bits/8) {
+							cout << "<x> secret will not fit in the cover image (" << covX*covY*bits/8 << " bytes)" << endl;
+							exit(1);
+					}
+					result.image = encodeData(imageCache[selTarget].image, imageCache[selSecret].data, bits);
+				}
+				else {
+					int secX = imageCache[selSecret].image.spec.width;
+					int secY = imageCache[selSecret].image.spec.height;
+						else if (secX > covX || secY > covY) {
+							cout << "<x> secret will not fit in the cover image (" << covX << "x" << covY << ")" << endl;
+							exit(1);
+						}
+					result.image = encodeImage(imageCache[selTarget].image, scale(imageCache[selSecret].image,scaleX,scaleY), bits);
+				}
+				imageCache.push_back(result);
+
+				//ugh i don't have time for this
+			}
+			else if (strcmp(argv[2],"decode") == 0) {
+				opMode = true;
+			}
 		}
 		else if (strcmp(argv[1],"encode") == 0) {
 			opMode = false;
