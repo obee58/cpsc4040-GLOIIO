@@ -99,6 +99,6 @@ ImageRGBA scale(ImageRGBA, double, double); //overall scaling factor (main code 
 ImageRGBA encodeImage(ImageRGBA, ImageRGBA, int); //cover, secret, bits
 ImageRGBA encodeData(ImageRGBA, ImageRaw, int);
 ImageRGBA decodeImage(ImageRGBA, int); //target, bits
-ImageRGBA decodeData(ImageRGBA, int); //target, bits
+ImageRaw decodeData(ImageRGBA, int); //target, bits
 
 #endif

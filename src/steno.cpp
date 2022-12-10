@@ -1,22 +1,11 @@
-//TODO literally everything in here lmao but mostly selection system & controls
-//   OpenGL/GLUT Program to read, display, modify, and write images
-//   using the OpenImageIO API
+//   OpenGL/GLUT Program to hide secret messages and images in images
 //
 //   Load images at launch by including their file paths as arguments
-//   ** Left/right arrows swap between multiple loaded images **
 //
-//   R: read new image from file (prompt)
-//   W: write current image to file (prompt)
-//   I: invert colors of current image
-//   N: randomly add black noise to current image
-//   ** P: display the first set of bytes of the image data in hex **
-//   
+//   Press F1 for quick help; see README for more information
 //   Q or ESC: quit program
 //
-//   CPSC 4040 | Owen Book | September 2022
-//
-//   usage: imgview [filenames]
-//
+//   CPSC 4040 | Owen Book | December 2022
 #include "gloiioFuncs.h"
 #include <OpenImageIO/imageio.h>
 #include <iostream>
@@ -54,6 +43,7 @@ OIIO_NAMESPACE_USING
 static vector<StenoImage> imageCache; //list of read images for multi-image viewing mode
 static int imageIndex = 0; //current index in vector to attempt to load (left/right arrows)
 static bool opMode = false; //false = encode, true = decode (yes it's obtuse)
+static bool rawDecode = false; //whether to use decodeImage or decodeData
 static string outstr; //current output path target
 static double scaleX = 1;
 static double scaleY = 1;
@@ -261,12 +251,16 @@ void handleKey(unsigned char key, int x, int y) {
 			}
 			break;
 
-		case 'c': //select secret
+		case 'c': //select secret or decode as data
 		case 'C':
 			if (!validIndex(imageIndex)) {break;}
 			if (!opMode) {
 				selSecret = imageIndex;
 				if (imageIndex == selTarget) { selTarget = -1; }
+			}
+			else {
+				rawDecode = !rawDecode;
+				rawDecode? (cout << "<i> decoding as data" << endl):(cout << "<i> decoding as image" << endl);
 			}
 			break;
 		
@@ -335,14 +329,18 @@ void handleKey(unsigned char key, int x, int y) {
 			if (!opMode && validIndex(selSecret)) {
 				StenoImage result;
 				result.isRaw = false;
+				int covX = imageCache[selTarget].image.spec.width;
+				int covY = imageCache[selTarget].image.spec.height;
 				if (imageCache[selSecret].isRaw) {
+					if (imageCache[selSecret].data.size > covX*covY*bits/8) {
+							cout << "<x> secret will not fit in the current cover image (" << covX*covY*bits/8 << " bytes)" << endl;
+							break;
+					}
 					result.image = encodeData(imageCache[selTarget].image, imageCache[selSecret].data, bits);
 				}
 				else {
 					int secX = imageCache[selSecret].image.spec.width;
 					int secY = imageCache[selSecret].image.spec.height;
-					int covX = imageCache[selTarget].image.spec.width;
-					int covY = imageCache[selTarget].image.spec.height;
 					if (scaleX != 1.0 || scaleY != 1.0) {
 						int resultX = secX*scaleX;
 						int resultY = secY*scaleY;
@@ -378,10 +376,16 @@ void handleKey(unsigned char key, int x, int y) {
 			}
 			else if (opMode) {
 				StenoImage result;
-				result.isRaw = false;
-				result.image = decodeImage(imageCache[selTarget].image, bits);
-				cout << "<i> displaying decoded image" << endl;
-				//TODO data decode condition
+				if (rawDecode) {
+					result.isRaw = true;
+					result.data = decodeData(imageCache[selTarget].image, bits);
+					cout << "<i> displaying decoded data" << endl;
+				}
+				else {
+					result.isRaw = false;
+					result.image = decodeImage(imageCache[selTarget].image, bits);
+					cout << "<i> displaying decoded image" << endl;
+				}
 
 				if (validIndex(9)) {
 					imageCache.back() = result; //replace

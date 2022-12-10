@@ -648,8 +648,34 @@ ImageRGBA decodeImage(ImageRGBA target, int bits) {
 	return result;
 }
 
-ImageRGBA decodeData(ImageRGBA target, int bits) {
-	//AUUGH
-	//ImageRaw result;
-	return target;
+ImageRaw decodeData(ImageRGBA target, int bits) {
+	int tarX = target.spec.width;
+	int tarY = target.spec.height;
+	ImageRaw result;
+	result.size = tarX*tarY*bits/8; //as much as necessary to fit from whole image
+	result.array = new ch_uint[result.size];
+
+	int totalBits = result.size*8;
+	int bitsRead = 0;
+	while (bitsRead < totalBits) {
+		ch_uint targetMask = (pow(2, bitsRead%bits)-1);
+		int pxind = bitsRead/(bits*4);
+		switch((bitsRead/bits)%4) { //cycle channel
+			case 0:
+				result.array[bitsRead/8] |= (target.pixels[pxind].red & targetMask);
+				break;
+			case 1:
+				result.array[bitsRead/8] |= (target.pixels[pxind].green & targetMask);
+				break;
+			case 2:
+				result.array[bitsRead/8] |= (target.pixels[pxind].blue & targetMask);
+				break;
+			case 3:
+				result.array[bitsRead/8] |= (target.pixels[pxind].alpha & targetMask);
+				break;
+			default: return result; //explode		
+		}
+		bitsRead++;
+	}
+	return result;
 }
