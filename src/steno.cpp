@@ -134,7 +134,6 @@ void refitWindow() {
 */
 void handleKey(unsigned char key, int x, int y) {
 	//handle jump number keys less awfully
-	//TODO this currently explodes because stoi no like
 	if (isdigit(key)) {
 		string keystr;
 		keystr = key;
@@ -142,7 +141,7 @@ void handleKey(unsigned char key, int x, int y) {
 		if (num == 0) { num = 10; } //0 goes to 10th position
 		if (validIndex(num-1)) {
 			imageIndex = num-1;
-			cout << "<i> jumped to slot " << num << endl;
+			cout << "<i> image " << num << " of " << imageCache.size() << endl;
 		}
 		return;
 	}
@@ -177,7 +176,9 @@ void handleKey(unsigned char key, int x, int y) {
 			if (imageIndex < selTarget) { selTarget--; }
 			if (imageIndex < selOutput) { selOutput--; }
 			if (imageIndex < selSecret) { selSecret--; }
-			cout << "<i> deleted image " << imageIndex << endl;
+			//move backwards unless the cache is now empty
+			if (!imageCache.empty()) {imageIndex--;}
+			cout << "<i> deleted image " << imageIndex+2 << endl;
 			break;
 		
 		case 'r': //read
@@ -211,7 +212,8 @@ void handleKey(unsigned char key, int x, int y) {
 			}
 				
 			if (imageCache.size() >= CACHE_COUNT) {
-				//TODO warn and prompt for replacing current index
+				imageCache.back() = newimg; //replace
+				imageIndex = CACHE_COUNT-1;
 			}
 			else {
 				imageCache.push_back(newimg);
@@ -321,13 +323,9 @@ void handleKey(unsigned char key, int x, int y) {
 			}
 			break;
 
-		case 'd': //switch channels used for hiding (grayscale mode)
-		case 'D':
-			//TODO pain in the ass
-			break;
-
 		//confirm and perform operation
-		case 32: //enter/space
+		case 13: //enter
+		case 32: //space
 			if (!validIndex(imageIndex)) {break;}
 			else if (!validIndex(selTarget)) {
 				cout << "<x> no target selected" << endl;
@@ -364,6 +362,7 @@ void handleKey(unsigned char key, int x, int y) {
 							break;
 						}
 						result.image = encodeImage(imageCache[selTarget].image, imageCache[selSecret].image, bits);
+						cout << "<i> displaying encoded image" << endl;
 					}
 				}
 
@@ -374,12 +373,14 @@ void handleKey(unsigned char key, int x, int y) {
 					imageCache.push_back(result);
 				}
 				selOutput = imageCache.size()-1;
+				imageIndex = selOutput;
 				break;
 			}
 			else if (opMode) {
 				StenoImage result;
 				result.isRaw = false;
 				result.image = decodeImage(imageCache[selTarget].image, bits);
+				cout << "<i> displaying decoded image" << endl;
 				//TODO data decode condition
 
 				if (validIndex(9)) {
@@ -389,6 +390,7 @@ void handleKey(unsigned char key, int x, int y) {
 					imageCache.push_back(result);
 				}
 				selOutput = imageCache.size()-1;
+				imageIndex = selOutput;
 				break;
 			}
 			else {

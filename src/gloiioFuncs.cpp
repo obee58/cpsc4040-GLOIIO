@@ -610,7 +610,7 @@ ImageRGBA encodeData(ImageRGBA cover, ImageRaw secret, int bits) {
 	int channel = 0;
 	ImageRGBA result = cloneImage(cover);
 	while (bitsWritten < secretBits) {
-		//uh oh
+		//uhhhhhh
 		ch_uint secretMask = pow(2,(bitsWritten%8)+1)-1;
 		ch_uint coverMask = ~(ch_uint)(pow(2,(bitsWritten%bits)+1)-1);
 		int pxind = bitsWritten/(bits*4);
@@ -629,6 +629,7 @@ ImageRGBA encodeData(ImageRGBA cover, ImageRaw secret, int bits) {
 				break;
 			default: return result; //explode		
 		}
+		bitsWritten++;
 	}
 	return result;
 }
