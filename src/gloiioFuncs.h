@@ -98,6 +98,7 @@ ImageRGBA scale(ImageRGBA, double, double); //overall scaling factor (main code 
 //maybe loose translation function to place small secret at specific position?
 ImageRGBA encodeImage(ImageRGBA, ImageRGBA, int); //cover, secret, bits
 ImageRGBA encodeData(ImageRGBA, ImageRaw, int);
-ImageRGBA decode(ImageRGBA, int); //target, bits
+ImageRGBA decodeImage(ImageRGBA, int); //target, bits
+ImageRGBA decodeData(ImageRGBA, int); //target, bits
 
 #endif

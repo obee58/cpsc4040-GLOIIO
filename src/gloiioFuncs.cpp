@@ -590,10 +590,10 @@ ImageRGBA encodeImage(ImageRGBA cover, ImageRGBA secret, int bits) {
 	int secretSize = secret.spec.width*secret.spec.height;
 	ImageRGBA result = cloneImage(cover);
 	for (int i=0; i<secretSize; i++) {
-		result.pixels[i].red = overwriteBits(bits, result.pixels[i].red, stepBits(bits, 8, secret.pixels[i].red));
-		result.pixels[i].green = overwriteBits(bits, result.pixels[i].green, stepBits(bits, 8, secret.pixels[i].green));
-		result.pixels[i].blue = overwriteBits(bits, result.pixels[i].blue, stepBits(bits, 8, secret.pixels[i].blue));
-		result.pixels[i].alpha = overwriteBits(bits, result.pixels[i].alpha, stepBits(bits, 8, secret.pixels[i].alpha));
+		result.pixels[i].red = overwriteBits(bits, cover.pixels[i].red, stepBits(8, bits, secret.pixels[i].red));
+		result.pixels[i].green = overwriteBits(bits, cover.pixels[i].green, stepBits(8, bits, secret.pixels[i].green));
+		result.pixels[i].blue = overwriteBits(bits, cover.pixels[i].blue, stepBits(8, bits, secret.pixels[i].blue));
+		result.pixels[i].alpha = overwriteBits(bits, cover.pixels[i].alpha, stepBits(8, bits, secret.pixels[i].alpha));
 	}
 	return result;
 }
@@ -613,7 +613,21 @@ ImageRGBA encodeData(ImageRGBA cover, ImageRaw secret, int bits) {
 }
 
 /* decodes a secret image by removing all but the last few bits of it and amplifying them */
-ImageRGBA decode(ImageRGBA target, int bits) {
-	//TODO major
-	return target;
+ImageRGBA decodeImage(ImageRGBA target, int bits) {
+	int targetSize = target.spec.width*target.spec.height;
+	ch_uint mask = ~((-1)<<bits);
+	ImageRGBA result = cloneImage(target);
+	for (int i=0; i<targetSize; i++) {
+		result.pixels[i].red = stepBits(bits, 8, target.pixels[i].red&mask);
+		result.pixels[i].green = stepBits(bits, 8, target.pixels[i].green&mask);
+		result.pixels[i].blue = stepBits(bits, 8, target.pixels[i].blue&mask);
+		result.pixels[i].alpha = stepBits(bits, 8, target.pixels[i].alpha&mask);
+	}
+	return result;
+}
+
+ImageRGBA decodeData(ImageRGBA target, int bits) {
+	//AUUGH
+	ImageRaw result;
+	return result;
 }
