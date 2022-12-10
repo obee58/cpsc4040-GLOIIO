@@ -589,11 +589,15 @@ ImageRGBA scale(ImageRGBA image, double factorx, double factory) {
 ImageRGBA encodeImage(ImageRGBA cover, ImageRGBA secret, int bits) {
 	int secretSize = secret.spec.width*secret.spec.height;
 	ImageRGBA result = cloneImage(cover);
-	for (int i=0; i<secretSize; i++) {
-		result.pixels[i].red = overwriteBits(bits, cover.pixels[i].red, stepBits(8, bits, secret.pixels[i].red));
-		result.pixels[i].green = overwriteBits(bits, cover.pixels[i].green, stepBits(8, bits, secret.pixels[i].green));
-		result.pixels[i].blue = overwriteBits(bits, cover.pixels[i].blue, stepBits(8, bits, secret.pixels[i].blue));
-		result.pixels[i].alpha = overwriteBits(bits, cover.pixels[i].alpha, stepBits(8, bits, secret.pixels[i].alpha));
+	for (int i=0; i<secret.spec.height; i++) {
+		for (int j=0; j<secret.spec.width; j++) {
+			int coverIndex = contigIndex(i,j,cover.spec.width);
+			int secretIndex = contigIndex(i,j,secret.spec.width);
+			result.pixels[coverIndex].red = overwriteBits(bits, cover.pixels[coverIndex].red, stepBits(8, bits, secret.pixels[secretIndex].red));
+			result.pixels[coverIndex].green = overwriteBits(bits, cover.pixels[coverIndex].green, stepBits(8, bits, secret.pixels[secretIndex].green));
+			result.pixels[coverIndex].blue = overwriteBits(bits, cover.pixels[coverIndex].blue, stepBits(8, bits, secret.pixels[secretIndex].blue));
+			result.pixels[coverIndex].alpha = overwriteBits(bits, cover.pixels[coverIndex].alpha, stepBits(8, bits, secret.pixels[secretIndex].alpha));
+		}
 	}
 	return result;
 }
@@ -601,13 +605,30 @@ ImageRGBA encodeImage(ImageRGBA cover, ImageRGBA secret, int bits) {
 /* encodes bytes of secret data in the last few bits of a cover image 
  * assumes secret data total bits <= cover pixels * bits * 4 */
 ImageRGBA encodeData(ImageRGBA cover, ImageRaw secret, int bits) {
-	//TODO major
 	int secretBits = secret.size*8;
 	int bitsWritten = 0;
+	int channel = 0;
 	ImageRGBA result = cloneImage(cover);
 	while (bitsWritten < secretBits) {
-		//TODO uh oh
-		//result.pixels[i].red = overwriteBits(bits, result.pixels[i].red, );
+		//uh oh
+		ch_uint secretMask = pow(2,(bitsWritten%8)+1)-1;
+		ch_uint coverMask = ~(ch_uint)(pow(2,(bitsWritten%bits)+1)-1);
+		int pxind = bitsWritten/(bits*4);
+		switch((bitsWritten%(bits*4))/4) { //cycle channel
+			case 0:
+				result.pixels[pxind].red = (cover.pixels[pxind].red & coverMask) | (secret.array[bitsWritten%8] & secretMask);
+				break;
+			case 1:
+				result.pixels[pxind].green = (cover.pixels[pxind].green & coverMask) | (secret.array[bitsWritten%8] & secretMask);
+				break;
+			case 2:
+				result.pixels[pxind].blue = (cover.pixels[pxind].blue & coverMask) | (secret.array[bitsWritten%8] & secretMask);
+				break;
+			case 3:
+				result.pixels[pxind].alpha = (cover.pixels[pxind].alpha & coverMask) | (secret.array[bitsWritten%8] & secretMask);
+				break;
+			default: return result; //explode		
+		}
 	}
 	return result;
 }
@@ -628,6 +649,6 @@ ImageRGBA decodeImage(ImageRGBA target, int bits) {
 
 ImageRGBA decodeData(ImageRGBA target, int bits) {
 	//AUUGH
-	ImageRaw result;
-	return result;
+	//ImageRaw result;
+	return target;
 }

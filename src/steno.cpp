@@ -55,8 +55,8 @@ static vector<StenoImage> imageCache; //list of read images for multi-image view
 static int imageIndex = 0; //current index in vector to attempt to load (left/right arrows)
 static bool opMode = false; //false = encode, true = decode (yes it's obtuse)
 static string outstr; //current output path target
-static double scaleX = 0; //0 = auto
-static double scaleY = 0;
+static double scaleX = 1;
+static double scaleY = 1;
 static int bits = 3; //default to 3, max hardcoded to 8
 //selection memory, set to -1 to deselect
 static int selTarget = -1; //cover if encode
@@ -271,7 +271,7 @@ void handleKey(unsigned char key, int x, int y) {
 		//settings commands
 		case 'a': //scale secret before encoding
 		case 'A':
-			if (!opMode && validIndex(imageIndex)) { //auto select current image if no secret selected
+			if (!opMode && !validIndex(selSecret)) { //auto select current image if no secret selected
 				selSecret = imageIndex;
 				if (imageIndex == selTarget) { selTarget = -1; }
 			}
@@ -294,6 +294,8 @@ void handleKey(unsigned char key, int x, int y) {
 
 				if (scaleX <= 0 || scaleY <= 0) {
 					cout << "<i> scaling disabled" << endl;
+					scaleX = 1.0;
+					scaleY = 1.0;
 					break;
 				}
 				int resultX = imageCache[selSecret].image.spec.width*scaleX;
@@ -324,27 +326,75 @@ void handleKey(unsigned char key, int x, int y) {
 			//TODO pain in the ass
 			break;
 
-		case 'f': //enable/disable compression of secret
-		case 'F':
-			//TODO lowest priority i'm most likely not adding this
-			break;
-
 		//confirm and perform operation
 		case 32: //enter/space
 			if (!validIndex(imageIndex)) {break;}
-			if (imageCache[imageIndex].isRaw) {
+			else if (!validIndex(selTarget)) {
+				cout << "<x> no target selected" << endl;
+				break;
+			}
+
+			if (!opMode && validIndex(selSecret)) {
+				StenoImage result;
+				result.isRaw = false;
+				if (imageCache[selSecret].isRaw) {
+					result.image = encodeData(imageCache[selTarget].image, imageCache[selSecret].data, bits);
+				}
+				else {
+					int secX = imageCache[selSecret].image.spec.width;
+					int secY = imageCache[selSecret].image.spec.height;
+					int covX = imageCache[selTarget].image.spec.width;
+					int covY = imageCache[selTarget].image.spec.height;
+					if (scaleX != 1.0 || scaleY != 1.0) {
+						int resultX = secX*scaleX;
+						int resultY = secY*scaleY;
+						if (resultX > RES_MAX || resultY > RES_MAX) {
+							cout << "<x> can't scale secret (resolution limit is " << RES_MAX << "x" << RES_MAX << ")" << endl;
+							break;
+						}
+						else if (resultX > covX || resultY > covY) {
+							cout << "<x> secret will not fit in the current cover image (" << covX << "x" << covY << ")" << endl;
+							break;
+						}
+						result.image = encodeImage(imageCache[selTarget].image, scale(imageCache[selSecret].image,scaleX,scaleY), bits);
+					}
+					else {
+						if (secX > covX || secY > covY) {
+							cout << "<x> secret will not fit in the current cover image (" << covX << "x" << covY << ")" << endl;
+							break;
+						}
+						result.image = encodeImage(imageCache[selTarget].image, imageCache[selSecret].image, bits);
+					}
+				}
+
+				if (validIndex(9)) {
+					imageCache.back() = result; //replace
+				}
+				else {
+					imageCache.push_back(result);
+				}
+				selOutput = imageCache.size()-1;
+				break;
+			}
+			else if (opMode) {
+				StenoImage result;
+				result.isRaw = false;
+				result.image = decodeImage(imageCache[selTarget].image, bits);
+				//TODO data decode condition
+
+				if (validIndex(9)) {
+					imageCache.back() = result; //replace
+				}
+				else {
+					imageCache.push_back(result);
+				}
+				selOutput = imageCache.size()-1;
+				break;
 			}
 			else {
-				int resultX = imageCache[selSecret].image.spec.width*scaleX;
-				int resultY = imageCache[selSecret].image.spec.height*scaleY;
-				if (resultX > RES_MAX || resultY > RES_MAX) {
-					cout << "<x> can't scale secret! resolution limit is " << RES_MAX << "x" << RES_MAX << endl;
-					break;
-				}
-				cout << selSecret << endl;
-				imageCache[selSecret].image = scale(imageCache[selSecret].image, scaleX, scaleY);
+				cout << "<x> no secret selected" << endl;
+				break;
 			}
-			//TODO big prints big checks
 			break;
 
 		//exit
@@ -364,14 +414,12 @@ void specialKey(int key, int x, int y) {
 			//TODO holy mother of help text
 			break;
 		case GLUT_KEY_LEFT:
-			//cout << "was displaying image " << imageIndex+1 << " of " << imageCache.size() << endl;
 			if (imageIndex > 0) {
 				imageIndex--;
 				cout << "<i> image " << imageIndex+1 << " of " << imageCache.size() << endl;
 			}
 			break;
 		case GLUT_KEY_RIGHT:
-			//cout << "was displaying image " << imageIndex+1 << " of " << imageCache.size() << endl;
 			if (imageIndex < imageCache.size()-1 && imageCache.size() > 0) {
 				imageIndex++;
 				cout << "<i> image " << imageIndex+1 << " of " << imageCache.size() << endl;
