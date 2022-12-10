@@ -36,8 +36,10 @@ OIIO_NAMESPACE_USING
 
 /** CONSTANTS & DEFINITIONS **/
 //default window dimensions
-#define DEFAULT_WIDTH 600	
+#define DEFAULT_WIDTH 600
 #define DEFAULT_HEIGHT 600
+//width of background that stays around image
+#define BORDER_WIDTH 24
 //max allowed images/files in cache
 #define CACHE_COUNT 10
 //background colors
@@ -91,18 +93,20 @@ void draw(){
 		glEnable(GL_BLEND);
 		//make sure settings are correct
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1); //Parrot Fixer 2000
-		glRasterPos2i(0,0); //draw from bottom left
+		glRasterPos2i(BORDER_WIDTH,BORDER_WIDTH); //draw from bottom left
 		if (item->isRaw) {
-			//TODO determine viewport size & ideal wrap width
+			//TODO determine ideal wrap width and fit to screen
 			int wrapWidth = 100;
 			glPixelZoom(1.0,1.0);
-			glDrawPixels(item->data.size/wrapWidth,wrapWidth,GL_RGBA,GL_UNSIGNED_BYTE,&(item->data.array[0]));
+			glDrawPixels(wrapWidth,item->data.size/wrapWidth,GL_RGBA,GL_UNSIGNED_BYTE,&(item->data.array[0]));
 		}
 		else {
 			//draw based on image spec
 			ImageSpec* spec = &(item->image.spec);
-			//TODO determine viewport size & zoom
-			glPixelZoom(1.0,1.0);
+			double zWidth = (double)(glutGet(GLUT_WINDOW_WIDTH)-(BORDER_WIDTH*2))/spec->width;
+			double zHeight = (double)(glutGet(GLUT_WINDOW_HEIGHT)-(BORDER_WIDTH*2))/spec->height;
+			double zoom = min(zWidth, zHeight); //good enough
+			glPixelZoom(zoom, zoom);
 			glDrawPixels(spec->width,spec->height,GL_RGBA,GL_UNSIGNED_BYTE,&(item->image.pixels[0]));
 		}
 		glDisable(GL_BLEND);
@@ -120,7 +124,7 @@ void draw(){
 void refitWindow() {
 	if (imageCache.size() > 0) {
 		ImageSpec* spec = &imageCache[imageIndex].image.spec;
-		glutReshapeWindow(spec->width*1.1, spec->height*1.1);
+		glutReshapeWindow(spec->width+(BORDER_WIDTH*2), spec->height+(BORDER_WIDTH*2));
 	}
 }
 
@@ -180,28 +184,39 @@ void handleKey(unsigned char key, int x, int y) {
 		case 'R':
 			cout << "enter input filename: ";
 			cin >> fn;
-			try {
-				if (glutGetModifiers() == GLUT_ACTIVE_SHIFT) {
-					//load file data no matter what
-					cout << "<i> reading as raw data" << endl;
+			if (glutGetModifiers() == GLUT_ACTIVE_SHIFT) {
+				//load file data without OIIO no matter what
+				cout << "<i> reading as raw data" << endl;
+				try {
 					newimg.isRaw = true;
 					newimg.data = readRaw(fn);
 				}
-				else {
-					//load image with OIIO
+				catch (exception &e) {break;}
+			}
+			else {
+				//load image with OIIO
+				try {
 					newimg.isRaw = false;
 					newimg.image = readImage(fn);
 				}
-				
-				if (imageCache.size() >= CACHE_COUNT) {
-					//TODO warn and prompt for replacing current index
-				}
-				else {
-					imageCache.push_back(newimg);
-					imageIndex = imageCache.size()-1;
+				catch (exception &e) {
+					//try to load it without OIIO
+					cout << "<i> trying as raw data" << endl;
+					try {
+						newimg.isRaw = true;
+						newimg.data = readRaw(fn);
+					}
+					catch (exception &e) {break;} 
 				}
 			}
-			catch (exception &e) {}
+				
+			if (imageCache.size() >= CACHE_COUNT) {
+				//TODO warn and prompt for replacing current index
+			}
+			else {
+				imageCache.push_back(newimg);
+				imageIndex = imageCache.size()-1;
+			}
 			break;
 		
 		case 'w': //write
@@ -256,6 +271,10 @@ void handleKey(unsigned char key, int x, int y) {
 		//settings commands
 		case 'a': //scale secret before encoding
 		case 'A':
+			if (!opMode && validIndex(imageIndex)) { //auto select current image if no secret selected
+				selSecret = imageIndex;
+				if (imageIndex == selTarget) { selTarget = -1; }
+			}
 			if (validIndex(selSecret)) {
 				if (imageCache[selSecret].isRaw) {
 					cout << "<x> raw data secrets cannot be scaled" << endl;
@@ -311,7 +330,20 @@ void handleKey(unsigned char key, int x, int y) {
 			break;
 
 		//confirm and perform operation
-		case '\n':
+		case 32: //enter/space
+			if (!validIndex(imageIndex)) {break;}
+			if (imageCache[imageIndex].isRaw) {
+			}
+			else {
+				int resultX = imageCache[selSecret].image.spec.width*scaleX;
+				int resultY = imageCache[selSecret].image.spec.height*scaleY;
+				if (resultX > RES_MAX || resultY > RES_MAX) {
+					cout << "<x> can't scale secret! resolution limit is " << RES_MAX << "x" << RES_MAX << endl;
+					break;
+				}
+				cout << selSecret << endl;
+				imageCache[selSecret].image = scale(imageCache[selSecret].image, scaleX, scaleY);
+			}
 			//TODO big prints big checks
 			break;
 
@@ -376,7 +408,91 @@ void timer( int value )
 /* main control method that sets up the GL environment
 	and handles command line arguments */
 int main(int argc, char* argv[]){
-	//TODO init and cmd handling
+	if (argc >= 2) {
+		cout << argv[1] << endl;
+		if (argv[1] == "instant") {
+			//TODO instant mode (last thing to add, options hard)
+		}
+		else if (strcmp(argv[1],"encode") == 0) {
+			opMode = false;
+			if (argc >= 3) {
+				//get cover image
+				StenoImage cover;
+				try {
+					cover.isRaw = false;
+					cover.image = readImage(argv[2]);
+				}
+				catch (exception &e) {
+					cerr << "could not read image " << argv[2] << endl;
+					exit(1);
+				}
+				imageCache.push_back(cover);
+				selTarget = imageCache.size()-1;
+
+				if (argc >= 4) {
+					//get secret
+					StenoImage secret;
+					try {
+						secret.isRaw = false;
+						secret.image = readImage(argv[3]);
+					}
+					catch (exception &e) {
+						cout << "trying as raw data... ";
+						try {
+							secret.isRaw = true;
+							secret.data = readRaw(argv[3]);
+						}
+						catch (exception &e) {
+							cerr << "could not read file " << argv[3] << endl;
+							exit(1);
+						}
+						cout << endl;
+					}
+					imageCache.push_back(secret);
+					selSecret = imageCache.size()-1;
+				}
+			}
+		}
+		else if (strcmp(argv[1],"decode") == 0) {
+			opMode = true;
+			if (argc >= 3) {
+				StenoImage newimg;
+				try {
+					newimg.isRaw = false;
+					newimg.image = readImage(argv[2]);
+				}
+				catch (exception &e) {
+					cerr << "could not read image " << argv[2] << endl;
+					exit(1);
+				}
+				imageCache.push_back(newimg);
+				selTarget = imageCache.size()-1;
+			}
+		}
+		else {
+			//assume all arguments are filenames and open w/o any settings
+			for (int i=1; i<argc; i++) {
+				StenoImage newimg;
+				try {
+					newimg.isRaw = false;
+					newimg.image = readImage(argv[i]);
+				}
+				catch (exception &e) {
+					cout << "trying as raw data... ";
+					try {
+						newimg.isRaw = true;
+						newimg.data = readRaw(argv[i]);
+					}
+					catch (exception &e) {
+						cerr << "could not read file " << argv[i] << endl;
+						exit(1);
+					}
+					cout << endl;
+				}
+				imageCache.push_back(newimg);
+			}
+		}
+	}
 
 	// start up the glut utilities
 	glutInit(&argc, argv);

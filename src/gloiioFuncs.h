@@ -18,6 +18,8 @@ OIIO_NAMESPACE_USING;
 typedef unsigned char ch_uint;
 //maximum filesize in bytes before readRaw cuts you off
 #define RAW_MAX 1048576 //1 mebibyte
+//maximum resolution before you should probably tell the user to stop
+#define RES_MAX 4096
 //preprocess macros aka math shorthand
 #define percentOf(a,max) ((double)(a)/(max)) //ex. 3 is 6% of 50, finds 6%
 #define contigIndex(row,col,wid) (((row)*(wid))+(col)) //converts row & column into 1d array index

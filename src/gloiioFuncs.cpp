@@ -545,21 +545,23 @@ ImageRGBA scale(ImageRGBA image, double factorx, double factory) {
 	pxRGBA* output = new pxRGBA[txRes*tyRes];
 
 	/* apply inverse map */
+	cout << txRes << "," << tyRes << endl;
 	for (int iny=0; iny<tyRes; iny++) {
 		for (int inx=0; inx<txRes; inx++) {
 			//TODO reference okwarp to make sure this logic is correct
 			//definitions of "input" and "output" in inverse map are really confusing!!!
 
 			//normalize x,y to 0...1 ("output pixel")
-			double outx = inx/txRes;
-			double outy = iny/tyRes;
+			double outx = (double)inx/txRes;
+			double outy = (double)iny/tyRes;
 			//calculate u,v and scale back to pixel coords
-			double u = outx*factorx*oxRes;
-			double v = outy*factory*oyRes;
-			//TODO better interpolation can go here?
-			int inu = round(u);
-			int inv = round(v);
+			double u = outx*oxRes;
+			double v = outy*oyRes;
+			//TODO better interpolation can go here
+			int inu = floor(u);
+			int inv = floor(v);
 			//apply warp by copying pixel
+			if (inx%100==0) {cout << inx << "," << iny << " <-- " << inu << "," << inv << endl;}
 			output[contigIndex(iny,inx,txRes)] = image.pixels[contigIndex(inv,inu,oxRes)];
 		}
 	}
